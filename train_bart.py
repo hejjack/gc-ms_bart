@@ -134,7 +134,7 @@ def main(config_file: Path = typer.Option(..., dir_okay=False, help="Path to the
     example_gen_args = config["example_generation_args"]
     tokenizer_path = model_args["tokenizer_path"]
     use_wandb = hf_training_args["report_to"] == "wandb"
-
+    
     ##################### set bs and gas ###################### # TODO move to a function
     ### set bs and gas    
     gpu_ram = torch.cuda.get_device_properties(0).total_memory
