@@ -158,7 +158,7 @@ def main(
     model = BartSpektroForConditionalGeneration.from_pretrained(checkpoint)
     model.generation_config.length_penalty = generation_config["length_penalty"]
     tokenizer = build_tokenizer(config["tokenizer_path"])
-    loader = torch.utils.data.DataLoader(datapipe, **dataloader_config, collate_fn=SpectroDataCollator(eval_mode=True), drop_last=False, shuffle=False) # type: ignore
+    loader = torch.utils.data.DataLoader(datapipe, **dataloader_config, collate_fn=SpectroDataCollator(inference_mode=True), drop_last=False, shuffle=False) # type: ignore
 
     decoder_input_token = generation_config.pop("decoder_input_token", "")
     decoder_input_ids = prepare_decoder_input(decoder_input_token, tokenizer, batch_size)
@@ -179,18 +179,14 @@ def main(
                 break
             
             # proceed with generation
-            input_ids = batch["input_ids"].to(device)
-            attention_mask = batch["attention_mask"].to(device)
-            with torch.no_grad():
-                generated_outputs = model.generate( # type: ignore
-                    input_ids=input_ids,
-                    position_ids=batch["position_ids"].to(device),
-                    attention_mask=attention_mask,
-                    decoder_input_ids=decoder_input_ids.to(device),
-                    **generation_config,
-                    output_scores=True,
-                    return_dict_in_generate=True,
-                )
+            model_input = {key: value.to(device) for key, value in batch.items()} # move tensors from batch to device
+            generated_outputs = model.generate( # type: ignore
+                decoder_input_ids=decoder_input_ids.to(device),
+                **model_input,
+                **generation_config,
+                output_scores=True,
+                return_dict_in_generate=True,
+            )
 
             preds = tokenizer.decode_batch(generated_outputs.sequences.tolist(), skip_special_tokens=True) # type: ignore
             preds = np.array(preds).reshape(batch_size, generation_config["num_return_sequences"])

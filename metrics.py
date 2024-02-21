@@ -56,17 +56,9 @@ class SpectroMetrics:
 
     def __init__(
         self,
-        tokenizer: transformers.PreTrainedTokenizerFast,
+        tokenizer: transformers.PreTrainedTokenizerFast | SelfiesTokenizer,
     ) -> None:
-
         self.tokenizer = tokenizer
-
-        if isinstance(tokenizer, SelfiesTokenizer):
-            self.mol_repr = "selfies"
-            assert sf.get_semantic_constraints()["I"] == 5, "Selfies tokenizer constraints are not set properly!"
-        else: 
-            self.mol_repr = "smiles"
-
 
     def __call__(self, eval_preds: transformers.EvalPrediction) -> dict[str, float]:
         preds_all = eval_preds.predictions
@@ -76,15 +68,12 @@ class SpectroMetrics:
             preds_all = preds_all[0]
 
         pad_token_id = self.tokenizer.pad_token_id
+        assert pad_token_id is not None
         preds_all = np.where(preds_all != -100, preds_all, pad_token_id)
         trues_all = np.where(trues_all != -100, trues_all, pad_token_id)
 
         preds_str_all = self.tokenizer.batch_decode(preds_all, skip_special_tokens=True)
         trues_str_all = self.tokenizer.batch_decode(trues_all, skip_special_tokens=True)
-
-        if self.mol_repr == "selfies":
-            preds_str_all = [sf.decoder(pred) for pred in preds_str_all]
-            trues_str_all = [sf.decoder(true) for true in trues_str_all]
 
         metrics = {}
         metrics["cos_simil"] = np.mean(compute_cos_simils(preds_str_all, trues_str_all))

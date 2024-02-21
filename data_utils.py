@@ -11,37 +11,43 @@ import warnings
 import pandas as pd
 import numpy as np
 from pathlib import Path 
+from rdkit import Chem
+import selfies as sf
+from spectra_process_utils import mol_repr_to_labels, cumsum_filtering, remove_stereochemistry_and_canonicalize
 
 T_co = TypeVar("T_co", covariant=True)
 
  
 class SpectroDataset(Dataset):
-    def __init__(self, df_or_pth_jsonl, eval_mode=False):
+    def __init__(self, df_or_pth_jsonl, inference_mode=False, restrict_intensities=False):
         """
         Parameters
         ----------
         df_or_pth_jsonl: pd.DataFrame 
             dataframe with prepared data or a path to DFs stored as jsonl (prepared with run_prepare_data.sh)
-        eval_mode: bool
-            evaluation mode where we work only with input_ids and position_ids
+        inference_mode: bool
+            evaluation mode where we don't have the labels at hand
+        restrict_intensities: bool
+            if True, we restrict the intensities channel (we don't provide position_ids to the model)
         """
         if isinstance(df_or_pth_jsonl, pd.DataFrame):
             self.data = df_or_pth_jsonl
         else:
             self.data = pd.read_json(df_or_pth_jsonl, orient="records", lines=True)
-        self.eval_mode = eval_mode
+        self.inference_mode = inference_mode
+        self.restrict_intensities = restrict_intensities
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
         row = self.data.iloc[idx]
-        out = {"input_ids": row["input_ids"],
-                "position_ids": row["position_ids"],
-                "attention_mask": row["attention_mask"],
-                }
-        if not self.eval_mode:
-            out["decoder_attention_mask"] = row["decoder_attention_mask"],
+        out = {"input_ids": row["input_ids"]}
+        
+        if not self.restrict_intensities:
+            out["position_ids"] = row["position_ids"]
+
+        if not self.inference_mode:
             out["labels"] = row["labels"]
         return out
 
@@ -51,53 +57,157 @@ class SpectroDataCollator:
     A class that from a list of dataset elements forms a batch
     """
 
-    def __init__(self, eval_mode=False):
-        self.eval_mode = eval_mode
+    def __init__(self, inference_mode=False, restrict_intensities=False):
+        self.inference_mode = inference_mode
+        self.restrict_intensities = restrict_intensities
 
     def __call__(
         self, batch: List[Dict[str, list]]
     ) -> Dict[str, torch.Tensor]:
         return self._collate_batch(batch)
                    
-    def _collate_batch(self, batch: List[Dict[str, list]],
-                eval_mode: bool = False ) -> Dict[str, torch.Tensor]:
+    def _collate_batch(self, batch: List[Dict[str, list]]) -> Dict[str, torch.Tensor]:
         """Collate `examples` into a batch"""
+        longest_encoder_sequence = max(len(e["input_ids"]) for e in batch)
         inputs = []
-        position_ids = []
-        attention_masks = []
-        if eval_mode:
-            for e in batch:
-                inputs.append(e["input_ids"])
-                position_ids.append(e["position_ids"])
-                attention_masks.append(e["attention_mask"])
-            return {"input_ids": torch.tensor(inputs),
-                    "position_ids": torch.tensor(position_ids),
-                    "attention_mask": torch.tensor(attention_masks)}
-        else:
-            dec_att = []
-            labels = []
-            for e in batch:
-                inputs.append(e["input_ids"])
-                position_ids.append(e["position_ids"])
-                attention_masks.append(e["attention_mask"])
-                dec_att.append(e["decoder_attention_mask"])
-                labels.append(e["labels"])
-            return {"input_ids": torch.tensor(inputs),
-                    "position_ids": torch.tensor(position_ids),
-                    "attention_mask": torch.tensor(attention_masks),
-                    "decoder_attention_mask": torch.tensor(dec_att),
-                    "labels": torch.tensor(labels)}
+        for e in batch:
+            inputs.append(e["input_ids"] + [0] * (longest_encoder_sequence - len(e["input_ids"])))             # adding padding
+        out = {"input_ids": torch.tensor(inputs)}
         
+        if not self.restrict_intensities: # add position_ids too
+            position_ids = [e["position_ids"] + [0] * (longest_encoder_sequence - len(e["position_ids"])) for e in batch] # adding padding
+            out["position_ids"] = torch.tensor(position_ids)
 
-def json_loader(row):
-    return json.loads(row[1])
+        if not self.inference_mode: # add labels too
+            longest_decoder_sequence = max(len(e["labels"]) for e in batch)
+            labels = [e["labels"] + [-100] * (longest_decoder_sequence - len(e["labels"])) for e in batch] # adding padding
+            out["labels"] = torch.tensor(labels)
+        
+        return out        
+
+
+def position_ids_creator(intensities, log_base, log_shift):
+    """create position ids for the Spectro Transformer model"""
+    x = np.array(intensities) / max(intensities)  # normalize
+    x = (np.log(x)/np.log(log_base)).astype(int) + log_shift # log binning
+    x = x * (x > 0) # all the small intensities are mapped to 0
+    return list(x.astype("int32"))
+
+
+def preprocess_datapoint(datapoint, source_token, preprocess_args):
+    """
+    Preprocess a single datapoint.
+    Parameters
+    ----------
+    datapoint: Dict[str, Any]
+        A single datapoint - dictionary containing mzs, intensities and SMILES.
+    preprocess_args: Dict[str, Any]
+        Tokenizer, restrict_intensity flag, inference_mode flag, log_base, log_shift, ...
+
+    Returns
+    -------
+    Dict[str, Any]
+        Preprocessed datapoint - dictionary containing input_ids, ?position_ids? and ?labels?.
+    """
+    datadict = json.loads(datapoint[1])
+
+    # remove zero peak (sometimes in NEIMS data)
+    if datadict["mz"][0] == 0:
+        datadict["mz"] = datadict["mz"][1:]
+        datadict["intensity"] = datadict["intensity"][1:]
+        print("Warning: zero peak occured => removed")
+
+    if preprocess_args["max_cumsum"] is not None:
+        mzs, intensities = cumsum_filtering(datadict["mz"], datadict["intensity"], preprocess_args["max_cumsum"])
+    else:
+        mzs, intensities = datadict["mz"], datadict["intensity"]
+    
+    out = {"input_ids": [round(mz) for mz in mzs]}
+    
+    if not preprocess_args["restrict_intensities"]:
+        out["position_ids"] = position_ids_creator(intensities, 
+                                                   preprocess_args["log_base"], 
+                                                   preprocess_args["log_shift"])
+
+    if not preprocess_args["inference_mode"]:
+        canon_mol_repr = remove_stereochemistry_and_canonicalize(datadict["mol_repr"])
+        assert canon_mol_repr is not None, f"Corrupted SMILES: {datadict['mol_repr']} not filtered out!"
+        if preprocess_args["mol_repr"] == "selfies": # if selfies, encode it
+            canon_mol_repr = sf.encoder(canon_mol_repr) # encode smiles to selfies
+        out["mol_repr"] = canon_mol_repr
+        source_id = preprocess_args["tokenizer"].encode(source_token)[0]
+        out["labels"] = mol_repr_to_labels(canon_mol_repr, preprocess_args["tokenizer"], source_id)
+    return out
+
+
+def filter_datapoints(datapoint, preprocess_args):
+    """
+    Filter out datapoints that are too long.
+    Parameters
+    ----------
+    datapoint: Dict[str, Any]
+        A single datapoint - dictionary containing mzs, intensities and SMILES.
+    preprocess_args: Dict[str, Any]
+        max_num_peaks, max_mz, max_mol_repr_len, max_cumsum - parameters for filtering.
+
+    Returns
+    -------
+    bool
+        Whether the datapoint should be kept.
+    """
+    datadict = json.loads(datapoint[1])
+
+    # # canonicalization + possible selfies transformation
+    canon_mol_repr = remove_stereochemistry_and_canonicalize(datadict["mol_repr"])
+
+    # filter corrupted
+    if canon_mol_repr is None:
+        print(f"datapoint_out: Corrupted SMILES: {datadict['smiles']}")
+        return False
+    else:
+        canon_mol_repr = canon_mol_repr.strip() # often is a blank space at the beginning
+        # no simles filtering
+        if canon_mol_repr == "":
+            print(f"datapoint_out: Corrupted SMILES: {datadict['smiles']}")
+            return False
+        # long simles filtering
+        elif len(canon_mol_repr) > preprocess_args["max_mol_repr_len"]:
+            print(f"datapoint_out: Too long SMILES: {canon_mol_repr}")
+            return False
+        
+    # if selfies, encode it
+    if preprocess_args["mol_repr"] == "selfies" and canon_mol_repr is not None:
+            canon_mol_repr = sf.encoder(canon_mol_repr)        # TODO?? try block?
+
+    # filter high MZ
+    if max(datadict["mz"]) > preprocess_args["max_mz"]:
+        print(f"datapoint_out: Too high MZ: {max(datadict['mz'])}")
+        return False
+
+    # filter little peaks so it doesn't get kicked out    
+    if preprocess_args["max_cumsum"] is not None:
+        mz, _ = cumsum_filtering(datadict["mz"], datadict["intensity"], preprocess_args["max_cumsum"])
+    else:
+        mz, _ = datadict["mz"], datadict["intensity"]
+
+    # filter long spectra
+    if len(mz) > preprocess_args["max_num_peaks"]:
+        print(f"datapoint_out: Too long spectra: {len(mz)}")
+        return False
+
+    return True
 
 
 def build_single_datapipe(json_file: str, 
                           shuffle: bool,
                           buffer_size: Optional[int] = None,
                           limit: Optional[int] = None,
+                          source_token: Optional[str] = None,
+                          preprocess_args: Optional[Dict[str, Any]] = None,
                         ):
+    if preprocess_args:
+        assert source_token is not None, "source_token must be provided if preprocess_args are provided (and thus preprocessing is required)"
+
     datapipe = IterableWrapper([json_file])
     datapipe = datapipe.open_files(mode='rt')
     datapipe = datapipe.readlines()
@@ -109,7 +219,11 @@ def build_single_datapipe(json_file: str,
     datapipe = datapipe.sharding_filter()  # after shuffle, before expensive operations
     if limit is not None:
         datapipe = datapipe.header(limit)
-    datapipe = datapipe.map(json_loader)
+    if preprocess_args:
+        datapipe = datapipe.filter(filter_fn=lambda d: filter_datapoints(d, preprocess_args), ) # filter out too long data and stuff
+        datapipe = datapipe.map(lambda d: preprocess_datapoint(d, source_token, preprocess_args))
+    else:
+        datapipe = datapipe.map(lambda x: json.loads(x[1])) # here change the function to preprocess_datapoint
     return datapipe
 
 
@@ -145,7 +259,7 @@ def build_datapipe_mixture(datapipes: List[IterDataPipe],
         }, seed=seed)
 
 
-def load_all_datapipes(data_args: Dict[str, Any]) -> Dict[str, IterDataPipe]:
+def load_all_datapipes(data_args: Dict[str, Any], preprocess_args: Optional[Dict[str, Any]] = None) -> Dict[str, IterDataPipe]:
     """
     Load all datapipes from a dict of json files.
     Parameters
@@ -174,28 +288,34 @@ def load_all_datapipes(data_args: Dict[str, Any]) -> Dict[str, IterDataPipe]:
              dataset["weight"],
              dataset["limit_train_split"],
              dataset["limit_val_split"],
-             dataset["limit_example_split"]
+             dataset["limit_example_split"],
+             dataset["source_token"]
              )
            for dataset_name, dataset in data_args["datasets"].items()]
-    dataset_names, train_paths, valid_paths, weights, limit_train_splits, limit_val_splits, limit_example_splits = list(zip(*info))
+    dataset_names, train_paths, valid_paths, weights, limit_train_splits, limit_val_splits, limit_example_splits, source_tokens = list(zip(*info))
     
     train_pipes = [build_single_datapipe(path, 
                                          shuffle=shuffle_train,
                                          buffer_size=buffer_size,
                                          limit=limit,
-                                         ) 
-                   for path, limit in zip(train_paths, limit_train_splits)]
-    valid_pipes = {name: build_single_datapipe(path, 
+                                         preprocess_args=preprocess_args,
+                                         source_token=source_token) 
+                   for path, limit, source_token in zip(train_paths, limit_train_splits, source_tokens)]
+    valid_pipes = {name: build_single_datapipe(path,
                                                shuffle=False,
                                                buffer_size=buffer_size,
-                                               limit=limit)
-                   for name, path, limit in zip(dataset_names, valid_paths, limit_val_splits)
+                                               limit=limit,
+                                               preprocess_args=preprocess_args, 
+                                               source_token=source_token)
+                   for name, path, limit, source_token in zip(dataset_names, valid_paths, limit_val_splits, source_tokens)
                    if limit != 0}
     example_pipes = {name: build_single_datapipe(path, 
                                                  shuffle=False,
                                                  buffer_size=buffer_size,
-                                                 limit=limit)
-                     for name, path, limit in zip(dataset_names, valid_paths, limit_example_splits) 
+                                                 limit=limit,
+                                                 preprocess_args=preprocess_args,
+                                                 source_token=source_token)
+                     for name, path, limit, source_token in zip(dataset_names, valid_paths, limit_example_splits, source_tokens) 
                      if limit != 0}
  
     datapipes["train"] = build_datapipe_mixture(train_pipes, weights, concat=False, seed=seed)

@@ -1,31 +1,18 @@
 import os
-
-from datetime import datetime
-import json
-import os
-import pickle
-import random
 import time
 import wandb
 from pathlib import Path
-import gc
-import glob
-from tqdm import tqdm
 import torch
-import numpy as np
 import transformers
-from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer, PreTrainedTokenizerFast, Trainer
 import typer
 import yaml
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
-from callbacks import PredictionLogger
-from metrics import SpectroMetrics
-from icecream import ic
-
+from typing import Dict
 
 # custom code
-from data_utils import SpectroDataset, SpectroDataCollator, load_all_datapipes
+from callbacks import PredictionLogger
+from metrics import SpectroMetrics
+from data_utils import SpectroDataCollator, load_all_datapipes
 from bart_spektro.modeling_bart_spektro import BartSpektroForConditionalGeneration
 from bart_spektro.configuration_bart_spektro import BartSpektroConfig
 from bart_spektro.selfies_tokenizer import hardcode_build_selfies_tokenizer
@@ -48,50 +35,54 @@ def enrich_best_metric_name(metric_name: str, dataset_name: str) -> str:
     return metric_name
 
 
-def build_tokenizer(tokenizer_path: str) -> PreTrainedTokenizerFast:
+def build_tokenizer(tokenizer_path: str) -> transformers.PreTrainedTokenizerFast:
     bpe_tokenizer = Tokenizer.from_file(tokenizer_path)
 
-    tokenizer = PreTrainedTokenizerFast(tokenizer_object=bpe_tokenizer,
+    tokenizer = transformers.PreTrainedTokenizerFast(tokenizer_object=bpe_tokenizer,
                                         bos_token="<bos>",
                                         eos_token="<eos>",
-                                        unk_token="<ukn>",
+                                        unk_token="<unk>",
                                         pad_token="<pad>",
                                         is_split_into_words=True)
     return tokenizer
 
 
-def get_spectro_config(model_args: Dict, tokenizer: PreTrainedTokenizerFast) -> BartSpektroConfig:
-    return BartSpektroConfig(separate_encoder_decoder_embeds=model_args["separate_encoder_decoder_embeds"],
-                             vocab_size=len(tokenizer.get_vocab()),
-                             max_position_embeddings=model_args["seq_len"],
-                             max_length=model_args["seq_len"],
-                             max_mz=model_args["max_mz"],
-                             tie_word_embeddings=False,     # exrtremely important - enables two vocabs, don't change
-                             min_len=0,
-                             encoder_layers=model_args["encoder_layers"],
-                             encoder_ffn_dim=model_args["encoder_ffn_dim"],
-                             encoder_attention_heads=model_args["encoder_attention_heads"],
-                             decoder_layers=model_args["decoder_layers"],
-                             decoder_ffn_dim=model_args["decoder_ffn_dim"],
-                             decoder_attention_heads=model_args["decoder_attention_heads"],
-                             encoder_layerdrop=0.0,
-                             decoder_layerdrop=0.0,
-                             activation_function='gelu',
-                             d_model=1024,
-                             dropout=0.2,
-                             attention_dropout=0.0,
-                             activation_dropout=0.0,
-                             init_std=0.02,
-                             classifier_dropout=0.0,
-                             scale_embedding=False,
-                             use_cache=True,
-                             pad_token_id=2,
-                             bos_token_id=3,
-                             eos_token_id=0,
-                             is_encoder_decoder=True,
-                             decoder_start_token_id=3,
-                             forced_eos_token_id=0,
-                             max_log_id=9)
+def get_spectro_config(model_args: Dict, tokenizer: transformers.PreTrainedTokenizerFast) -> BartSpektroConfig:
+    assert not (bool(model_args.get("restrict_intensities", None)) ^ bool(model_args.get("encoder_seq_len", None))), "restrict_intensities and encoder_position_embeddings must be both provided or both None"
+
+    return BartSpektroConfig(separate_encoder_decoder_embeds = model_args["separate_encoder_decoder_embeds"],
+                             vocab_size = len(tokenizer.get_vocab()),
+                             decoder_max_position_embeddings = model_args["decoder_seq_len"],
+                             encoder_max_position_embeddings = model_args.get("encoder_seq_len", None), # specify only when restricting intensities, otherwise encoder embedding matrix is sized by max_log_id
+                             max_length = model_args["decoder_seq_len"],
+                             max_mz = model_args["max_mz"],
+                             tie_word_embeddings = False,     # exrtremely important - enables two vocabs, don't change
+                             min_len = 0,
+                             encoder_layers = model_args["encoder_layers"],
+                             encoder_ffn_dim = model_args["encoder_ffn_dim"],
+                             encoder_attention_heads = model_args["encoder_attention_heads"],
+                             decoder_layers = model_args["decoder_layers"],
+                             decoder_ffn_dim = model_args["decoder_ffn_dim"],
+                             decoder_attention_heads = model_args["decoder_attention_heads"],
+                             encoder_layerdrop = 0.0,
+                             decoder_layerdrop = 0.0,
+                             activation_function = 'gelu',
+                             d_model = 1024,
+                             dropout = 0.2,
+                             attention_dropout = 0.0,
+                             activation_dropout = 0.0,
+                             init_std = 0.02,
+                             classifier_dropout = 0.0,
+                             scale_embedding = False,
+                             use_cache = True,
+                             pad_token_id = 2,
+                             bos_token_id = 3,
+                             eos_token_id = 0,
+                             is_encoder_decoder = True,
+                             decoder_start_token_id = 3,
+                             forced_eos_token_id = 0,
+                             max_log_id = 9 if not model_args.get("restrict_intensities", False) else None # extremely important, don't change
+                             )
  
 
 @app.command()
@@ -130,11 +121,12 @@ def main(config_file: Path = typer.Option(..., dir_okay=False, help="Path to the
 
     hf_training_args = config["hf_training_args"]
     dataset_args = config["data_args"]
+    preprocess_args = config.get("preprocess_args", {})
     model_args = config["model_args"]
     example_gen_args = config["example_generation_args"]
     tokenizer_path = model_args["tokenizer_path"]
     use_wandb = hf_training_args["report_to"] == "wandb"
-    
+
     ##################### set bs and gas ###################### # TODO move to a function
     ### set bs and gas    
     gpu_ram = torch.cuda.get_device_properties(0).total_memory
@@ -220,7 +212,22 @@ def main(config_file: Path = typer.Option(..., dir_okay=False, help="Path to the
         tokenizer = build_tokenizer(tokenizer_path)
     print(f"TOKENIZER vocab size: {len(tokenizer.get_vocab())}")
     os.environ["TOKENIZERS_PARALLELISM"] = "false" # surpressing a warning
-    datapipes = load_all_datapipes(dataset_args)
+
+    if preprocess_args:
+        print("Using  O N - T H E - F L Y  PREPROCESSING")
+        preprocess_args = {
+            "restrict_intensities": model_args.get("restrict_intensities", False),
+            "inference_mode": False,
+            "max_num_peaks": preprocess_args.get("max_num_peaks", 300),
+            "max_mol_repr_len": preprocess_args.get("max_mol_repr_len", 100),
+            "max_mz": model_args["max_mz"],
+            "mol_repr": "selfies" if tokenizer_path == "selfies_tokenizer" else "smiles",
+            "log_base": preprocess_args.get("log_base", 1.7),
+            "log_shift": preprocess_args.get("log_shift", 9),
+            "max_cumsum": preprocess_args.get("max_cumsum", None),
+            "tokenizer": tokenizer,
+        }
+    datapipes = load_all_datapipes(dataset_args, preprocess_args)
     bart_spectro_config = get_spectro_config(model_args, tokenizer)
 
     print("Loading model...")
@@ -287,9 +294,9 @@ def main(config_file: Path = typer.Option(..., dir_okay=False, help="Path to the
     # set callbacks
     sorted_dataset_names = sorted([name for name in datapipes["example"].keys()])
     prediction_callback = PredictionLogger(datasets=[datapipes["example"][name] for name in sorted_dataset_names],
-                                           prefix_tokens=[dataset_args["datasets"][name]["prefix_token"] for name in sorted_dataset_names],
+                                           source_tokens=[dataset_args["datasets"][name]["source_token"] for name in sorted_dataset_names],
                                            log_prefixes=sorted_dataset_names, # type: ignore
-                                           collator=SpectroDataCollator(),
+                                           collator=SpectroDataCollator(restrict_intensities=model_args.get("restrict_intensities", False)),
                                            log_every_n_steps=hf_training_args["eval_steps"],
                                            show_raw_preds=dataset_args["show_raw_preds"],
                                            log_to_wandb=use_wandb,
@@ -297,23 +304,23 @@ def main(config_file: Path = typer.Option(..., dir_okay=False, help="Path to the
                                         )
 
     compute_metrics = SpectroMetrics(tokenizer)
-    seq2seq_training_args = Seq2SeqTrainingArguments(**hf_training_args,
-                                                     output_dir=str(save_path),
-                                                     run_name=run_name,
-                                                     data_seed=dataset_args["data_seed"]
-                                                    )
+    seq2seq_training_args = transformers.Seq2SeqTrainingArguments(**hf_training_args,
+                                                                    output_dir=str(save_path),
+                                                                    run_name=run_name,
+                                                                    data_seed=dataset_args["data_seed"]
+                                                                    )
     
 
-    trainer = Seq2SeqTrainer(
-                model=model,                   
-                args=seq2seq_training_args,                
-                train_dataset=datapipes["train"],
-                eval_dataset=datapipes["valid"], 
-                callbacks=[prediction_callback],
-                tokenizer=tokenizer,
-                compute_metrics=compute_metrics,
-                data_collator = SpectroDataCollator(),
-            )
+    trainer = transformers.Seq2SeqTrainer(
+                    model=model,                   
+                    args=seq2seq_training_args,                
+                    train_dataset=datapipes["train"],
+                    eval_dataset=datapipes["valid"], 
+                    callbacks=[prediction_callback],
+                    tokenizer=tokenizer,
+                    compute_metrics=compute_metrics,
+                    data_collator = SpectroDataCollator(restrict_intensities=model_args.get("restrict_intensities", False)),
+                )
     
     
     if checkpoint and resume_id:
