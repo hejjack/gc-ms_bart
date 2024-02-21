@@ -9,7 +9,8 @@ from spectra_process_utils import msp_file_to_jsonl
 from pathlib import Path
 from train_bart import build_tokenizer
 
-tokenizer_path = "tokenizer/bbpe_tokenizer/bart_bbpe_tokenizer_1M_mf3000.model"
+tokenizer_type = "mf10"
+tokenizer_path = f"tokenizer/bbpe_tokenizer/bart_bbpe_tokenizer_1M_{tokenizer_type}.model"
 tokenizer = build_tokenizer(tokenizer_path)
 
 
@@ -19,37 +20,38 @@ for dataset_type in ["train", "valid", "test"]:
     msp_file_to_jsonl(dataset_path / f"{dataset_type}.msp",
                     tokenizer,
                     source_token,
-                    path_jsonl=dataset_path / "mf3000" / f"{dataset_type}.jsonl",
+                    path_jsonl=dataset_path / tokenizer_type / f"{dataset_type}.jsonl",
                     keep_spectra=True
                     )
 ```
 
-###################### TOTO JE DIVNY #############################
 # PREPROCESSING STATS
- - test.jsonl
-   0 no mol_repr
-   104 mol_reprs too long
-   0 spectra corrupted
-   1560 spectra w/ too high mz
-   4926 spectra w/ too many peaks
-   totally 6590 issues
-   discarded 5914/58436 spectra
-   LENGTH: 52522                    
- - valid.jsonl
-   0 no mol_repr
-   110 mol_reprs too long
-   0 spectra corrupted
-   1418 spectra w/ too high mz
-   4678 spectra w/ too many peaks
-   totally 6206 issues
-   discarded 5618/58106 spectra 
-   LENGTH: 52488                   
  - train.jsonl
    0 no mol_repr
-   726 mol_reprs too long
+   363 mol_reprs too long
    0 spectra corrupted
-   11746 spectra w/ too high mz
-   39788 spectra w/ too many peaks
-   totally 52260 issues
-   discarded 47154/464050 spectra
-    LENGTH: 416896                          
+   5873 spectra w/ too high mz
+   2344 spectra w/ too many peaks
+   totally 8580 issues
+   discarded 7292/232025 spectra 
+  LENGTH: 224733 
+
+ - valid.jsonl
+   0 no mol_repr
+   55 mol_reprs too long
+   0 spectra corrupted
+   709 spectra w/ too high mz
+   283 spectra w/ too many peaks
+   totally 1047 issues
+   discarded 876/29053 spectra 
+  LENGTH: 28177
+
+ - test.jsonl
+   0 no mol_repr
+   52 mol_reprs too long
+   0 spectra corrupted
+   780 spectra w/ too high mz
+   302 spectra w/ too many peaks
+   totally 1134 issues
+   discarded 951/29218 spectra 
+  LENGTH: 28267                          

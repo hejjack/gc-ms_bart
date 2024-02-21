@@ -52,6 +52,8 @@ msp_file_to_jsonl(dataset_path / f"{dataset_type}.msp",
 ## SEL_* variant of this dataset (the SELFIES representation)
 was created using this code snippet. It was needed to modify selfies constraints to encode all the crazy molecules from NIST
 
+
+THIS HAS TO BE CORRECTED (padding out, masks out)
 ```python
 import selfies as sf
 import json
@@ -88,7 +90,6 @@ def smiles_dataset_to_selfies_dataset(smiles_dataset_path, selfies_dataset_save_
             assert len(tokenized_selfie) < seq_len, f"selfie: {tokenized_selfie}, len: {len(tokenized_selfie)} is too long!"
             smi_row["labels"] =  tokenized_selfie + [-100] * (seq_len - len(tokenized_selfie))
             assert len(smi_row["labels"]) == seq_len, f"selfie: {tokenized_selfie}, len: {len(tokenized_selfie)} labels len is different from seqlen!"
-            smi_row["decoder_attention_mask"] = [1] * len(tokenized_selfie) + [0] * (seq_len - len(tokenized_selfie))
             sel_line = json.dumps(smi_row)
             f_sel.write(sel_line + "\n")
 
