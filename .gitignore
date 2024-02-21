@@ -23,6 +23,8 @@ RLHF/**
 # big files
 data/categorized_michal.csv
 predictions/**/*.jsonl
+tokenizer/training_data/*.txt
+tokenizer/training_data/1K.txt
 
 # temporary files
 **/.ipynb_checkpoints/**
