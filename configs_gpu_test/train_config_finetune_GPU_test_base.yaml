@@ -12,15 +12,15 @@ data_args:
       limit_train_split: null  # null for full; limit of head from valid set chosen for validation split
       limit_val_split: null     # null for full; limit of head from valid set chosen for validation split
       limit_example_split: 100  # null for full; limit of head chosen for visualized (generated)
-      prefix_token: "<nist>"
+      source_token: "<nist>"
     NEIMS: # NEIMS only for evaluation tracking purposes
-      train_path: "../data/datasets/30M_rassp/neims_gen/30M_rassp_train.jsonl"
-      valid_path: "../data/datasets/30M_rassp/neims_gen/30M_rassp_valid.jsonl"
+      train_path: "../data/datasets/30M_rassp/neims_gen/train.jsonl"
+      valid_path: "../data/datasets/30M_rassp/neims_gen/valid.jsonl"
       weight: 0.0
       limit_train_split: 0  # null for full; limit of head from valid set chosen for validation split
       limit_val_split: 2000     # null for full; limit of head from valid set chosen for validation split
       limit_example_split: 100  # null for full; limit of head chosen for visualized (generated)
-      prefix_token: "<neims>"
+      source_token: "<neims>"
     RASSP: # only for evaluation tracking purposes
       train_path: "../data/datasets/30M_rassp/rassp_gen/train.jsonl"
       valid_path: "../data/datasets/30M_rassp/rassp_gen/valid.jsonl"
@@ -28,12 +28,12 @@ data_args:
       limit_train_split: 0  # null for full; limit of head from valid set chosen for validation split
       limit_val_split: 2000     # null for full; limit of head from valid set chosen for validation split
       limit_example_split: 100  # null for full; limit of head chosen for visualized (generated)
-      prefix_token: "<rassp>"
+      source_token: "<rassp>"
 
 
 model_args:
-  tokenizer_path: "../tokenizer/bbpe_tokenizer/bart_bbpe_1M_tokenizer.model"
-  seq_len: 200
+  tokenizer_path: "../tokenizer/bbpe_tokenizer/bart_bbpe_tokenizer_1M_mf3.model"
+  decoder_seq_len: 200
   max_mz: 503    # (503 just here in skirit train_config_finetune_GPU_test to be sure it doesn't fail) controls vocab size for encoder, if separate_encoder_decoder_embeds=True
   separate_encoder_decoder_embeds: True
   encoder_layers: 12 # 24
@@ -84,9 +84,9 @@ hf_training_args:
   generation_num_beams: 1
   generation_max_length: 200  # NEVER TOUCH THIS
   evaluation_strategy: "steps"
-  eval_steps: 4896 ### make it match (4896 ~ approx 3*full NIST dataset)
+  eval_steps: 5267 ### make it match (5267 ~ approx 3*full NIST dataset)
 
-  save_steps: 4896 ### make it match (4896 ~ approx 3*full NIST dataset)
+  save_steps: 5267 ### make it match (5267 ~ approx 3*full NIST dataset)
   save_strategy: "steps"
   save_total_limit: 3
 
