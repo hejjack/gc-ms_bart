@@ -33,11 +33,15 @@ class BartSpektroConfig(BartConfig):
         separate_encoder_decoder_embeds: Optional[bool] = None,
         max_log_id: Optional[int] = None,
         max_mz: Optional[int] = None,
+        decoder_max_position_embeddings: int = 200,
+        encoder_max_position_embeddings: Optional[int] = None,
         **kwargs):
         
         self.max_log_id=max_log_id
         self.max_mz=max_mz
         self.separate_encoder_decoder_embeds=separate_encoder_decoder_embeds
+        self.decoder_max_position_embeddings=decoder_max_position_embeddings
+        self.encoder_max_position_embeddings=encoder_max_position_embeddings
         super().__init__(
             **kwargs,
         )

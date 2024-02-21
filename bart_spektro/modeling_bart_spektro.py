@@ -16,7 +16,7 @@
 
 # adam imports
 
-from transformers.modeling_outputs import BaseModelOutput, Seq2SeqModelOutput, Seq2SeqLMOutput
+from transformers.modeling_outputs import BaseModelOutput
 from .configuration_bart_spektro import BartSpektroConfig
 from transformers.models.bart.modeling_bart import BartPretrainedModel, BartLearnedPositionalEmbedding, BartEncoderLayer, BartDecoder, BartDecoderLayer
 from transformers.utils import ModelOutput
@@ -149,14 +149,14 @@ class BartSpektroEncoder(BartPretrainedModel):
     """
 
     def __init__(self, config: BartSpektroConfig, embed_tokens: Optional[nn.Embedding] = None):
-        super().__init__(config)
+        super().__init__(config) # !! should we pop the decoder_max_position_embeddings from config?
 
         self.dropout = config.dropout
         self.layerdrop = config.encoder_layerdrop
 
         embed_dim = config.d_model
-        self.padding_idx = config.pad_token_id
-        self.max_source_positions = config.max_position_embeddings
+        self.padding_idx = 0           # Adam - hardcoded - mz 0 doesnt exist, it's a perfect padding token
+        self.max_source_positions = config.encoder_max_position_embeddings # used when restricting intensities (noPID)
         self.embed_scale = math.sqrt(embed_dim) if config.scale_embedding else 1.0
 
         if embed_tokens is not None:
@@ -169,7 +169,7 @@ class BartSpektroEncoder(BartPretrainedModel):
             if hasattr(config, "separate_encoder_decoder_embeds") and config.separate_encoder_decoder_embeds == True: # all fine
                 if hasattr(config, "max_mz") and config.max_mz != None:
                     num_embeddings = config.max_mz + 1
-                    self.embed_tokens = nn.Embedding(num_embeddings, embed_dim, self.padding_idx) # Adam customization
+                    self.embed_tokens = nn.Embedding(num_embeddings, embed_dim) # Adam customization + no padding_idx
                 else:
                     raise ValueError("config.max_mz must be set for BartSpektroEncoder to have separated embeddings (it denotes the size of the dictionary for encoder)")
             else:
@@ -178,11 +178,11 @@ class BartSpektroEncoder(BartPretrainedModel):
         if config.max_log_id:
             self.embed_positions = BartSpektroLearnedPositionalEmbedding(
                 config.max_log_id + 1,  # size of the dict for all max+1 values
-                config.d_model,
+                embed_dim,
             )
         else:
             self.embed_positions = BartLearnedPositionalEmbedding(
-                config.max_position_embeddings,
+                self.max_source_positions,
                 embed_dim,
         )
         self.layers = nn.ModuleList([BartEncoderLayer(config) for _ in range(config.encoder_layers)])
@@ -270,7 +270,7 @@ class BartSpektroEncoder(BartPretrainedModel):
         if position_ids != None: # Adam customization
             embed_pos = self.embed_positions(position_ids)
         else:
-            embed_pos = self.embed_positions(input_shape)
+            embed_pos = self.embed_positions(input_ids)
 
         hidden_states = inputs_embeds + embed_pos
         hidden_states = self.layernorm_embedding(hidden_states)
@@ -334,6 +334,39 @@ class BartSpektroEncoder(BartPretrainedModel):
             last_hidden_state=hidden_states, hidden_states=encoder_states, attentions=all_attentions
         )
 
+
+class BartSpektroDecoder(BartDecoder):
+    """ 
+    The module doesn't change any functionality of the original BartDecoder.
+    It only changes the __init__() function to accept the decoder_max_position_embeddings
+    parameter instead of the max_position_embeddings parameter.
+    """
+    def __init__(self, config: BartSpektroConfig, embed_tokens: Optional[nn.Embedding] = None):
+        super(BartDecoder, self).__init__(config) # !!should we pop the decoder_max_position_embeddings from config?
+
+        self.dropout = config.dropout
+        self.layerdrop = config.decoder_layerdrop
+        self.padding_idx = config.pad_token_id
+        self.max_target_positions = config.decoder_max_position_embeddings
+        self.embed_scale = math.sqrt(config.d_model) if config.scale_embedding else 1.0
+
+        self.embed_tokens = nn.Embedding(config.vocab_size, config.d_model, self.padding_idx)
+
+        if embed_tokens is not None:
+            self.embed_tokens.weight = embed_tokens.weight
+
+        self.embed_positions = BartLearnedPositionalEmbedding(
+            self.max_target_positions,
+            config.d_model,
+        )
+        self.layers = nn.ModuleList([BartDecoderLayer(config) for _ in range(config.decoder_layers)])
+        self.layernorm_embedding = nn.LayerNorm(config.d_model)
+
+        self.gradient_checkpointing = False
+        # Initialize weights and apply final processing
+        self.post_init()
+
+
 class BartSpektroModel(BartPretrainedModel):
     def __init__(self, config: BartSpektroConfig):
         super().__init__(config)
@@ -348,7 +381,7 @@ class BartSpektroModel(BartPretrainedModel):
             print("WARNING: This model is using   T W O   dictionaries - one for encoder, one for decoder.")
             self.shared = None
         self.encoder = BartSpektroEncoder(config, embed_tokens=self.shared)  # Adam - removed creating shared embeddings and passing them to both parts
-        self.decoder = BartDecoder(config, embed_tokens=self.shared)         # Adam - removed creating shared embeddings and passing them to both parts
+        self.decoder = BartSpektroDecoder(config, embed_tokens=self.shared)         # Adam - removed creating shared embeddings and passing them to both parts
 
         # Initialize weights and apply final processing
         self.post_init()
