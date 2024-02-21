@@ -1,6 +1,6 @@
 tmp_dir: "../data/datasets/tmp"
 log_dir: "../data/datasets/log"
-output_dir: "../data/datasets/30M_rassp/neims_gen"
+output_dir: "../data/datasets/4_8M/neims_gen"
 phases_to_perform: [1,2,3,4,5]   # 1_5, order is not important
 lost_chunks: [] # 
 data_has_header: False     # whether the input has clean smiles file or csv (with <smiles zinc_id> structure)

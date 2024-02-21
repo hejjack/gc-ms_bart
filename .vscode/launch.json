@@ -33,8 +33,8 @@
                 "PYTHONPATH": "${PYTHONPATH}:/home/xhajek9/gc-ms_bart:/home/xhajek9/gc-ms_bart/bart_spektro"
             },
             "args": [
-                "--input-dir ../data/datasets/30M_rassp/rassp_gen/msps",
-                "--output-dir ../data/datasets/30M_rassp/rassp_gen",
+                "--input-dir ../data/datasets/4_8M/rassp_gen/msps",
+                "--output-dir ../data/datasets/4_8M/rassp_gen",
                 "--do-preprocess False",
                 "--num-processes 32",
                 "--concat"

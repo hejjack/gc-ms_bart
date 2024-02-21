@@ -2,19 +2,19 @@ data_args:
   show_raw_preds: True
   buffer_size: 100000 # for shuffling in dataloader
   data_seed: 42
-  dataset_for_choosing_best_model: "30M_rassp"  # !!!!!!!!!!!!
+  dataset_for_choosing_best_model: "4_8M"  # !!!!!!!!!!!!
   datasets: 
-    30M_rassp: # NEIMS only for evaluation tracking purposes
-      train_path: "../data/datasets/30M_rassp/neims_gen/train.jsonl"
-      valid_path: "../data/datasets/30M_rassp/neims_gen/valid.jsonl"
+    NEIMS: # NEIMS only for evaluation tracking purposes
+      train_path: "../data/datasets/4_8M/neims_gen/train.jsonl"
+      valid_path: "../data/datasets/4_8M/neims_gen/valid.jsonl"
       weight: 1.0
       limit_train_split: null  # null for full; limit of head from valid set chosen for validation split
       limit_val_split: 20000     # null for full; limit of head from valid set chosen for validation split
       limit_example_split: 100  # null for full; limit of head chosen for visualized (generated)
       source_token: "<neims>"
-    30M_rassp_rassp_gen: # only for evaluation tracking purposes
-      train_path: "../data/datasets/30M_rassp/rassp_gen/train.jsonl"
-      valid_path: "../data/datasets/30M_rassp/rassp_gen/valid.jsonl"
+    RASSP: # only for evaluation tracking purposes
+      train_path: "../data/datasets/4_8M/rassp_gen/train.jsonl"
+      valid_path: "../data/datasets/4_8M/rassp_gen/valid.jsonl"
       weight: 1.0
       limit_train_split: null  # null for full; limit of head from valid set chosen for validation split
       limit_val_split: 20000     # null for full; limit of head from valid set chosen for validation split

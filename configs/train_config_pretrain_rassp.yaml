@@ -2,11 +2,11 @@ data_args:
   show_raw_preds: True
   buffer_size: 100000 # for shuffling in dataloader
   data_seed: 42
-  dataset_for_choosing_best_model: "30M_rassp_rassp_gen"  # !!!!!!!!!!!!
+  dataset_for_choosing_best_model: "4_8M_rassp_gen"  # !!!!!!!!!!!!
   datasets: 
-    30M_rassp_rassp_gen:
-      train_path: "../data/datasets/30M_rassp/rassp_gen/train.jsonl"
-      valid_path: "../data/datasets/30M_rassp/rassp_gen/valid.jsonl"
+    RASSP:
+      train_path: "../data/datasets/4_8M/rassp_gen/train.jsonl"
+      valid_path: "../data/datasets/4_8M/rassp_gen/valid.jsonl"
       weight: 1.0
       limit_train_split: null  # null for full; limit of head from valid set chosen for validation split
       limit_val_split: 20000     # null for full; limit of head from valid set chosen for validation split

@@ -1,15 +1,20 @@
 This dataset was created by filtering 30M ZINC slice dataset. The filtering process 
 suits the RASSP model trained by Ales Krenek (following the official RASSP model repo)
 
+The data went through: CANONICALIZATION, DESTEREOCHEMICALIZATION, DEDUPLICATION, LONG SMILES FILTERING (100), CORRUPTED SMILES FILTERING (done on the original 30M ZINC slice dataset). 
+During the NEIMS generation, the data was further filtered based on `max_mz` and `max_peaks` 
+The data consists of json dicts on each line containing "smiles", "mz" and "intensity". Further preprocessing is done on-the-fly.
+
+
 This dataset is created by the following steps:
-1. Get the 30M_rassp.smi (A.Krenek's filtering method used on a 30M ZINC slice dataset)
+1. Get the 4_8M.smi (A.Krenek's filtering method used on a 30M ZINC slice dataset)
 2. feed this to run_preprocess_neims.sh
 
 ```bash
 echo $CONDA_PREFIX should be ~/miniconda3/envs/NEIMSpy3
 OMP_NUM_THREADS=1
 export KMP_AFFINITY=granularity=fine,compact,1,0  # sth for OMP to not throw INFOs
-ID=30M_rassp
+ID=4_8M
 python ../data/smi_preprocess_neims.py \
                         --smiles-path ../data/datasets/${ID}/${ID}.smi \
                         --dataset-id $ID \
@@ -22,7 +27,7 @@ python ../data/smi_preprocess_neims.py \
 ```yaml
 tmp_dir: "../data/datasets/tmp"
 log_dir: "../data/datasets/log"
-output_dir: "../data/datasets/30M_rassp/neims_gen"
+output_dir: "../data/datasets/4_8M/neims_gen"
 phases_to_perform: [1,2,3,4,5]   # 1_5, order is not important
 lost_chunks: []  
 data_has_header: False     # whether the input has clean smiles file or csv (with <smiles zinc_id> structure)
@@ -40,10 +45,11 @@ neims_dir: "../../NEIMS"
 seed: 42
 ```
 
-
+## RAM overflow
+Be careful about RAM overflow (500GB machine wasn't enough for the NEIMS generation in phase3). If some of the processes fail, you can use a combination of `lost_chunks` and `phases_to_perform` parameters to rerun only the failed chunks from a saved checkpoint. Remember to keep the `num-workers` parameter the same so the program finds all the right chunk checkpoints. 
 
 In the end, there is 4.8M SMILES in the dataset. The preprocessing further cut the number of molecules,
 finally the lengths of splits are:
-    - train 428384 8 (aktuali)
-    - valid 237990
-    - test  237990
+    - train 4364716
+    - valid 242490
+    - test  242480
