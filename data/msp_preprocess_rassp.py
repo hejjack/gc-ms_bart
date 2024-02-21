@@ -11,39 +11,74 @@ import typer
 import numpy as np
 import multiprocessing as mp
 from tqdm import tqdm
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
+from transformers import PreTrainedTokenizerFast
 from pathlib import Path
-from spectra_process_utils import msp_file_to_jsonl
-from bart_spektro.selfies_tokenizer import SelfiesTokenizer, hardcode_build_selfies_tokenizer
-from train_bart import build_tokenizer
+from tokenizers import Tokenizer
+import yaml
+import pandas as pd
 
+from bart_spektro.selfies_tokenizer import SelfiesTokenizer, hardcode_build_selfies_tokenizer
+from spectra_process_utils import msp_file_to_jsonl
+
+# from train_bart import build_tokenizer
 app = typer.Typer()
 
-def msp_files_to_jsonl_files(process_id, files, 
+# copied from train_bart.py, due to import problems
+def build_tokenizer(tokenizer_path: str) -> PreTrainedTokenizerFast:
+    bpe_tokenizer = Tokenizer.from_file(tokenizer_path)
+
+    tokenizer = PreTrainedTokenizerFast(tokenizer_object=bpe_tokenizer,
+                                        bos_token="<bos>",
+                                        eos_token="<eos>",
+                                        unk_token="<unk>",
+                                        pad_token="<pad>",
+                                        is_split_into_words=True)
+    return tokenizer
+
+
+def msp_files_to_jsonl_files(process_id, 
+                             files, 
                              output_dir, 
                              tokenizer: PreTrainedTokenizerFast | SelfiesTokenizer, 
-                             source_token, 
-                             max_cumsum, 
-                             keep_spectra):
-    print(f"process {process_id} STARTED")
+                             keep_spectra,
+                             do_preprocess: bool = True,
+                             preprocess_args: dict = {}):
+    print(f"process {process_id} STARTED, preprocess .. {do_preprocess}")
     for file in tqdm(files): 
         jsonl_file = output_dir / f"{file.stem}.jsonl"
         msp_file_to_jsonl(file,
                           tokenizer=tokenizer,
-                          source_token=source_token,
                           path_jsonl=jsonl_file,
-                          max_cumsum=max_cumsum,
-                          keep_spectra=keep_spectra)
+                          keep_spectra=keep_spectra,
+                          do_preprocess=do_preprocess,
+                          preprocess_args=preprocess_args)
     print(f"process {process_id} DONE")
+
+
+def data_split(df, train_test_valid_ratio: list):
+    """split the df into train, test and valid sets"""
+    if sum(train_test_valid_ratio) != 1:
+        print("train_test_valid_ratio does not sum to 1 ===>>> READJUSTING")
+        ratio_sum = sum(train_test_valid_ratio)
+        train_test_valid_ratio = [train_test_valid_ratio[0]/ratio_sum,
+                                  train_test_valid_ratio[1]/ratio_sum,
+                                  train_test_valid_ratio[2]/ratio_sum]
+    train_set = df.sample(
+        frac=train_test_valid_ratio[0], random_state=42)
+    rest = df.drop(train_set.index)
+
+    test_set = rest.sample(frac=train_test_valid_ratio[1]/(train_test_valid_ratio[1]+train_test_valid_ratio[2]),
+                           random_state=42)
+    valid_set = rest.drop(test_set.index)
+    print(f"train len: {len(train_set)}, test len: {len(test_set)}, valid len: {len(valid_set)}")
+    return train_set, test_set, valid_set
 
 
 @app.command()
 def main(input_dir: Path = typer.Option(..., help="input directory containing the msp files"), 
          output_dir: Path = typer.Option(..., help="output directory to store the preprocessed jsonl files"), 
-         source_token: str = typer.Option("<rassp>", help="source token to use for the jsonl files"),
-         max_cumsum: float = typer.Option(0.995, help="maximum number of tokens in the summary"),
+         config_file: Path = typer.Option(..., help="config file containing important parameters"),
          keep_spectra: bool = typer.Option(False, help="keep the mz/intensity values in the jsonl files (for evaluation)"),
-         mol_representation: str = typer.Option("smiles", help="molecular representation to use for the jsonl files (smiles/selfies)"),
          num_processes: int = typer.Option(1, help="number of processes to use for parallelization"),
          concat: bool = typer.Option(False, help="concatenate the preprocessed jsonl files into one file"),
          clean: bool = typer.Option(False, help="delete the preprocessed jsonl files after concatenation")):
@@ -53,13 +88,23 @@ def main(input_dir: Path = typer.Option(..., help="input directory containing th
     The output is a folder containing the preprocessed jsonl files (optionaly concatenated into one file).
     The jsonl can be used directly to feed to BartSpektro.
     """
+    
+    # unpack config file
+    with open(config_file, "r") as f:
+        try:
+            config = yaml.safe_load(f)
+        except yaml.YAMLError as exc:
+            raise ValueError("Error in configuration file:", exc) from exc
 
-    if mol_representation == "smiles":
-        tokenizer = build_tokenizer(tokenizer_path="tokenizer/bbpe_tokenizer/bart_bbpe_1M_tokenizer.model")
-    elif mol_representation == "selfies":
+
+    if not config["do_preprocess"]:
+        tokenizer = None
+    elif config["mol_representation"] == "smiles":
+        tokenizer = build_tokenizer(tokenizer_path=config["tokenizer_path"])
+    elif config["mol_representation"] == "selfies":
         tokenizer = hardcode_build_selfies_tokenizer()
     else:
-        raise ValueError("mol_representation must be either smiles or selfies")
+        raise ValueError("when preprocessing, mol_representation must be either smiles or selfies")
 
     print("Number of processes: ", num_processes)
     if not output_dir.exists():
@@ -82,9 +127,10 @@ def main(input_dir: Path = typer.Option(..., help="input directory containing th
                                                                                      grouped_files[i], 
                                                                                      output_dir, 
                                                                                      tokenizer,
-                                                                                     source_token, 
-                                                                                     max_cumsum, 
-                                                                                     keep_spectra))
+                                                                                     keep_spectra,
+                                                                                     config["do_preprocess"],
+                                                                                     config.get("preprocess_args", {})))
+        
     for process in processes.values():
         process.start()
     for process in processes.values():
@@ -94,15 +140,25 @@ def main(input_dir: Path = typer.Option(..., help="input directory containing th
     if concat:
         print("Concatenating the jsonl files into one file")
         jsonl_files = list(output_dir.glob("*.jsonl"))
-        with open(output_dir / "all.jsonl", "w+", encoding="utf-8") as outfile:
+        with open(output_dir / "all.jsonl", "w", encoding="utf-8") as outfile:
             for jsonl_file in jsonl_files:
-                with open(jsonl_file, "r+", encoding="utf-8") as infile:
+                with open(jsonl_file, "r", encoding="utf-8") as infile:
                     for line in infile:
                         outfile.write(line)
         if clean:
+            print("Cleaning partial json files")
             for jsonl_file in jsonl_files:
                 jsonl_file.unlink()
         print("Concatenation DONE")
+    
+    if config["train_split_ratio"] or config["test_split_ratio"] or config["valid_split_ratio"]:
+        print("Splitting the data into train, test and valid sets")
+        df = pd.read_json(output_dir / "all.jsonl", lines=True)
+        train, test, valid = data_split(df, [config["train_split_ratio"], config["test_split_ratio"], config["valid_split_ratio"]])
+        train.to_json(output_dir / "train.jsonl", orient="records", lines=True) if config["train_split_ratio"] else None
+        test.to_json(output_dir / "test.jsonl", orient="records", lines=True) if config["test_split_ratio"] else None
+        valid.to_json(output_dir / "valid.jsonl", orient="records", lines=True) if config["valid_split_ratio"] else None
+        print("Splitting DONE")
 
 
 if __name__ == "__main__":
