@@ -56,7 +56,7 @@ hf_training_args:
   do_train: True
   do_eval: True
 
-  max_steps: 113_000
+  max_steps: 112_010
   optim: "adamw_torch"
   warmup_steps: 1000
 
@@ -71,7 +71,7 @@ hf_training_args:
 
   report_to: "wandb" # "wandb"
   remove_unused_columns: False # NEVER TOUCH THIS
-  logging_steps: 5
+  logging_steps: 10
 
   fp16: True
   seed: 42
