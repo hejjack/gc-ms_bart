@@ -6,16 +6,16 @@ data_args:
   dataset_for_choosing_best_model: "nist"  # !!!!!!!!!!!!
   datasets: 
     nist:    # 208908 + 26000
-      train_path: "../data/datasets/NIST/NIST_split_filip/selfies_data/train.jsonl"
-      valid_path: "../data/datasets/NIST/NIST_split_filip/selfies_data/valid.jsonl"
+      train_path: "../data/datasets/NIST/NIST_split_filip/mf100/train.jsonl"
+      valid_path: "../data/datasets/NIST/NIST_split_filip/mf100/valid.jsonl"
       weight: 1.0
       limit_train_split: null  # null for full; limit of head from valid set chosen for validation split
-      limit_val_split: null     # null for full; limit of head from valid set chosen for validation split
-      limit_example_split: 100  # null for full; limit of head chosen for visualized (generated)
-      source_token: "[nist]"
+      limit_val_split: 200     # null for full; limit of head from valid set chosen for validation split
+      limit_example_split: 10  # null for full; limit of head chosen for visualized (generated)
+      source_token: "<nist>"
 
 model_args:
-  tokenizer_path: "selfies_tokenizer" # not a path just for the trainer to know it should use sefies tokenizer 
+  tokenizer_path: "../tokenizer/bbpe_tokenizer/bart_bbpe_tokenizer_1M_mf100.model"
   decoder_seq_len: 200
   max_mz: 500    # controls vocab size for encoder, if separate_encoder_decoder_embeds=True
   separate_encoder_decoder_embeds: True
@@ -24,7 +24,11 @@ model_args:
   encoder_attention_heads: 16
   decoder_layers: 12 # 24
   decoder_ffn_dim: 4096
-  decoder_attention_heads: 16  
+  decoder_attention_heads: 16
+  # noPID specific
+  restrict_intensities: True
+  encoder_seq_len: 300
+
 
 
 example_generation_args:
@@ -66,11 +70,11 @@ hf_training_args:
   generation_num_beams: 1
   generation_max_length: 200  # NEVER TOUCH THIS
   evaluation_strategy: "steps"
-  eval_steps: 5267 ### make it match (5267 ~ approx 3*full NIST dataset)
+  eval_steps: 10 #5267 ### make it match (5267 ~ approx 3*full NIST dataset) #####################
 
-  save_steps: 5267 ### make it match (5267 ~ approx 3*full NIST dataset)
+  save_steps: 10000 #5267 ### make it match (5267 ~ approx 3*full NIST dataset) #####################
   save_strategy: "steps"
-  save_total_limit: 3
+  save_total_limit: 1
 
   load_best_model_at_end: True
   metric_for_best_model: "eval_cos_simil"

@@ -14,7 +14,7 @@ dataloader:
   num_workers: 5
 
 tokenizer:
-  tokenizer_path: "tokenizer/bbpe_tokenizer/bart_bbpe_1M_tokenizer.model" # REQUIRED!
+  tokenizer_path: "tokenizer/bbpe_tokenizer/bart_bbpe_tokenizer_1M_mf3.model" # REQUIRED!
 
 generation_args:
   "top_k": null

@@ -11,12 +11,12 @@ data_args:
       limit_train_split: null  # null for full; limit of head from valid set chosen for validation split
       limit_val_split: null     # null for full; limit of head from valid set chosen for validation split
       limit_example_split: 100  # null for full; limit of head chosen for visualized (generated)
-      prefix_token: "[nist]"
+      source_token: "[nist]"
 
 model_args:
   tokenizer_path: "selfies_tokenizer" # not a path just for the trainer to know it should use sefies tokenizer 
-  seq_len: 200 
-  max_mz: 499    # controls vocab size for encoder, if separate_encoder_decoder_embeds=True
+  decoder_seq_len: 200 
+  max_mz: 500    # controls vocab size for encoder, if separate_encoder_decoder_embeds=True
   encoder_layers: 12 # 24
   encoder_ffn_dim: 4096
   encoder_attention_heads: 16
@@ -46,7 +46,8 @@ hf_training_args:
   warmup_steps: 1000
 
   learning_rate: 0.00005
-  auto_bs: True   # works well for BART base, computes GPU bs and gas based on effective bs, num GPUs and card memory
+  auto_bs: True
+  bart_size: "base" # "large" or "base"
   effective_train_batch_size: 128
   effective_eval_batch_size: 128
 
@@ -64,9 +65,9 @@ hf_training_args:
   generation_num_beams: 1
   generation_max_length: 200  # NEVER TOUCH THIS
   evaluation_strategy: "steps"
-  eval_steps: 4896 ### make it match (4896 ~ approx 3*full NIST dataset)
+  eval_steps: 5267 ### make it match (5267 ~ approx 3*full NIST dataset)
 
-  save_steps: 4896 ### make it match (4896 ~ approx 3*full NIST dataset)
+  save_steps: 5267 ### make it match (5267 ~ approx 3*full NIST dataset)
   save_strategy: "steps"
   save_total_limit: 2
 

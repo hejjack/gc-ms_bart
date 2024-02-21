@@ -11,7 +11,7 @@ dataloader:
   batch_size: 1  # DONT CHANGE THAT! for now (the predictions get mixed or sth.. BS1 works ok.)
   num_workers: 3
 
-tokenizer_path: "tokenizer/bbpe_tokenizer/bart_bbpe_1M_tokenizer.model" # REQUIRED!
+tokenizer_path: "tokenizer/bbpe_tokenizer/bart_bbpe_tokenizer_1M_mf3.model" # REQUIRED!
 
 generation_args:
   "top_k": null
