@@ -45,11 +45,8 @@ class PPOSpectroTrainer(PPOTrainer):
         Returns:
             `torch.Tensor`: The generated tokens.
         """
-
-        response = self.accelerator.unwrap_model(self.model).generate(input_ids=model_input["input_ids"].to(device),
-                                       position_ids=model_input["position_ids"].to(device),
-                                       attention_mask=model_input["attention_mask"].to(device),
-                                       **generation_kwargs)
+        model_input = {key: value.to(device) for key, value in model_input.items()} # move tensors from batch to device
+        response = self.accelerator.unwrap_model(self.model).generate(**model_input, **generation_kwargs)
         return response
     
 
