@@ -6,7 +6,7 @@
     "configurations": [
         {
             "name": "Run finetuning",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "train_bart.py",
             "console": "integratedTerminal",
@@ -20,6 +20,24 @@
                 "--additional-info", "_from_scratch_selfies",
                 "--wandb-group", "debug",
                 "--additional-tags", "'A100:alfa:selfies'"
+            ]
+        }, 
+        {
+            "name": "Run rassp preprocessing",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "data/msp_preprocess_rassp.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${PYTHONPATH}:/home/xhajek9/gc-ms_bart:/home/xhajek9/gc-ms_bart/bart_spektro"
+            },
+            "args": [
+                "--input-dir ../data/datasets/30M_rassp/rassp_gen/msps",
+                "--output-dir ../data/datasets/30M_rassp/rassp_gen",
+                "--do-preprocess False",
+                "--num-processes 32",
+                "--concat"
             ]
         },  
     ]
