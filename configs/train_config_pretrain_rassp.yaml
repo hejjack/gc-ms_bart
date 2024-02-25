@@ -2,6 +2,7 @@ data_args:
   show_raw_preds: True
   buffer_size: 100000 # for shuffling in dataloader
   data_seed: 42
+  shuffle_train: True
   dataset_for_choosing_best_model: "RASSP"  # !!!!!!!!!!!!
   datasets: 
     NEIMS: # only for evaluation tracking purposes

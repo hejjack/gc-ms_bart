@@ -130,10 +130,10 @@ def preprocess_datapoint(datapoint, source_token, preprocess_args):
                                                    preprocess_args["log_shift"])
 
     if not preprocess_args["inference_mode"]:
-        canon_mol_repr = remove_stereochemistry_and_canonicalize(datadict["mol_repr"])
-        assert canon_mol_repr is not None, f"Corrupted SMILES: {datadict['mol_repr']} not filtered out!"
-        if preprocess_args["mol_repr"] == "selfies": # if selfies, encode it
-            canon_mol_repr = sf.encoder(canon_mol_repr) # encode smiles to selfies
+        canon_mol_repr = remove_stereochemistry_and_canonicalize(datadict["smiles"])
+        assert canon_mol_repr is not None, f"Corrupted SMILES: {datadict['smiles']} not filtered out!"
+        if preprocess_args["mol_repr"] == "selfies":  # if selfies, encode it
+            canon_mol_repr = sf.encoder(canon_mol_repr)  # encode smiles to selfies
         out["mol_repr"] = canon_mol_repr
         source_id = preprocess_args["tokenizer"].encode(source_token)[0]
         out["labels"] = mol_repr_to_labels(canon_mol_repr, preprocess_args["tokenizer"], source_id)
@@ -158,7 +158,7 @@ def filter_datapoints(datapoint, preprocess_args):
     datadict = json.loads(datapoint[1])
 
     # # canonicalization + possible selfies transformation
-    canon_mol_repr = remove_stereochemistry_and_canonicalize(datadict["mol_repr"])
+    canon_mol_repr = remove_stereochemistry_and_canonicalize(datadict["smiles"])
 
     # filter corrupted
     if canon_mol_repr is None:
