@@ -249,17 +249,15 @@ def msp_file_to_jsonl(path_msp: Path,
         path to the msp file
     tokenizer : PreTrainedTokenizerFast | SelfiesTokenizer
         tokenizer used for tokenizing the smiles to fit decoder_input_ids
-    source_token : str
-        token to be used as a source token (e.g. "<neims>", "<rassp>")
-    molecule_representation : str
-        molecule representation to be used (either "smiles" or "selfies", default "smiles")
     path_jsonl : Path
         path of the output jsonl file, if None, the jsonl file is saved
         with the same name as the msp file, but with .jsonl extension
-    max_cumsum : float
-        when provided, preprocessing includes cumsum filtering of spectra
-        that means leaving only the highest peak with sum of intensities
-        just over max_cumsum (if sums to 1, basically percentage of 'mass') 
+    keep_spectra : bool
+        whether to keep the spectra (original mz, and intensities) in the output jsonl file along with the preprocessed data
+    do_preprocess : bool
+        whether to preprocess the spectra and prepare BART compatible jsonl file or just extract the spectra from msp to jsonl
+    preprocess_args : dict
+        dictionary of arguments for the preprocess_spectrum function (max_num_peaks, max_mol_repr_len, max_mz, log_base, log_shift, max_cumsum, mol_representation, source_token)
     """
     data_msp = list(load_from_msp(str(path_msp), metadata_harmonization=False))
     if do_preprocess:

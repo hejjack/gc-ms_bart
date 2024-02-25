@@ -1,3 +1,7 @@
+# NIST dataset
+This dataset made of NIST20 is deduplicated, canonicalized, and split into train, test, and validation sets (with no overlaps). For more info refer to the scripts. 
+It only contains jsonl files with `mz`, `intensity`, and `smiles` fields. The filtering and preprocessing is meant to be done on-the-fly (for more freedom in testing preprocessing methods).
+
 ## This dataset is created by the following steps:
 1. Create msp splits using my updated version of FILIP JOZEFOV's notebook data/nist_cleaning_splitting.ipynb
    - it dorps ~60k spectra that don't have some form of proper identifier (smiles, inchikey)
@@ -5,21 +9,28 @@
 2. Create jsonl files by the function msp_file_to_jsonl from spectra_process_utils.py (for 'train' and then 'test' and 'valid'):
 
 ```python
+import sys
+sys.path.append("..")
 from spectra_process_utils import msp_file_to_jsonl
 from pathlib import Path
 
+tokenizer = None
 for dataset_type in ["train", "valid", "test"]:
-    dataset_path = Path("data/datasets/NIST/NIST_split_filip")
-    source_token = "<nist>"
-    msp_file_to_jsonl(dataset_path / f"{dataset_type}.msp",
-                    tokenizer_path,
-                    source_token,
-                    path_jsonl=dataset_path / f"{dataset_type}.jsonl",
-                    keep_spectra=True
-                    )
+    dataset_path = Path("../data/datasets/NIST/NIST_split_filip")
+    msp_file_to_jsonl(path_msp=dataset_path / f"{dataset_type}.msp",
+                      tokenizer = tokenizer,
+                      path_jsonl=dataset_path / f"{dataset_type}.jsonl",
+                      keep_spectra=True,
+                      do_preprocess=False
+                      )
 ```
 
-# PREPROCESSING STATS
+## No stats available (NO PREPROCESS)
+
+
+
+################################
+# PREPROCESSING STATS DEPRECATED
  - test.jsonl
    0 no smiles
    52 smiles too long
