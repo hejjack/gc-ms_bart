@@ -34,7 +34,7 @@ preprocess_args:
   lets_do_this: True # if you want default args, this can be whatever (as long as preprocess_args is not empty or None)
 
 model_args:
-  tokenizer_path: "../tokenizer/bbpe_tokenizer/bart_bbpe_tokenizer_1M_mf10000000.model"
+  tokenizer_path: "../tokenizer/bbpe_tokenizer/bart_bbpe_tokenizer_1M_mf10.model"
   decoder_seq_len: 200
   max_mz: 500    # controls vocab size for encoder, if separate_encoder_decoder_embeds=True
   separate_encoder_decoder_embeds: True
@@ -61,7 +61,7 @@ hf_training_args:
   do_train: True
   do_eval: True
 
-  max_steps: 224_010
+  max_steps: 112_010
   optim: "adamw_torch"
   warmup_steps: 1000
 
