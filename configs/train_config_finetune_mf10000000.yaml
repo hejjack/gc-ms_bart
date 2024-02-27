@@ -6,8 +6,8 @@ data_args:
   dataset_for_choosing_best_model: "nist"  # !!!!!!!!!!!!
   datasets: 
     nist:    # 208908 + 26000
-      train_path: "../data/datasets/NIST/NIST_split_filip/mf10000000/train.jsonl"
-      valid_path: "../data/datasets/NIST/NIST_split_filip/mf10000000/valid.jsonl"
+      train_path: "../data/datasets/NIST/NIST_split_filip/train.jsonl"
+      valid_path: "../data/datasets/NIST/NIST_split_filip/valid.jsonl"
       weight: 1.0
       limit_train_split: null  # null for full; limit of head from valid set chosen for validation split
       limit_val_split: null     # null for full; limit of head from valid set chosen for validation split
@@ -30,6 +30,8 @@ data_args:
       limit_example_split: 0  # null for full; limit of head chosen for visualized (generated)
       source_token: "<rassp>"
 
+preprocess_args: 
+  lets_do_this: True # if you want default args, this can be whatever (as long as preprocess_args is not empty or None)
 
 model_args:
   tokenizer_path: "../tokenizer/bbpe_tokenizer/bart_bbpe_tokenizer_1M_mf10000000.model"
