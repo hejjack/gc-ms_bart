@@ -4,6 +4,7 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+    
         {
             "name": "Run finetuning",
             "type": "debugpy",
@@ -39,6 +40,24 @@
                 "--num-processes 32",
                 "--concat"
             ]
-        },  
+        },        
+        {
+            "name": "Run pretraining",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "train_bart.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "1",
+                "CUDA_LAUNCH_BLOCKING": "1",
+            },
+            "args": [
+                "--config-file", "../configs/train_config_pretrain_rassp.yaml",
+                "--additional-info", "_rassp_scratch",
+                "--wandb-group", "debug",
+                "--additional-tags", "'A100:alfa:RASSP'"
+            ]
+        },   
     ]
 }
