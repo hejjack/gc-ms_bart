@@ -115,7 +115,7 @@ def preprocess_datapoint(datapoint, source_token, preprocess_args):
     if datadict["mz"][0] == 0:
         datadict["mz"] = datadict["mz"][1:]
         datadict["intensity"] = datadict["intensity"][1:]
-        print("Warning: zero peak occured => removed")
+        # print("Warning: zero peak occured => removed")
 
     if preprocess_args["max_cumsum"] is not None:
         mzs, intensities = cumsum_filtering(datadict["mz"], datadict["intensity"], preprocess_args["max_cumsum"])
@@ -162,17 +162,17 @@ def filter_datapoints(datapoint, preprocess_args):
 
     # filter corrupted
     if canon_mol_repr is None:
-        print(f"datapoint_out: Corrupted SMILES: {datadict['smiles']}")
+        # print(f"datapoint_out: Corrupted SMILES: {datadict['smiles']}")
         return False
     else:
         canon_mol_repr = canon_mol_repr.strip() # often is a blank space at the beginning
         # no simles filtering
         if canon_mol_repr == "":
-            print(f"datapoint_out: Corrupted SMILES: {datadict['smiles']}")
+            # print(f"datapoint_out: Corrupted SMILES: {datadict['smiles']}")
             return False
         # long simles filtering
         elif len(canon_mol_repr) > preprocess_args["max_mol_repr_len"]:
-            print(f"datapoint_out: Too long SMILES: {canon_mol_repr}")
+            # print(f"datapoint_out: Too long SMILES: {canon_mol_repr}")
             return False
         
     # if selfies, encode it
@@ -181,7 +181,7 @@ def filter_datapoints(datapoint, preprocess_args):
 
     # filter high MZ
     if max(datadict["mz"]) > preprocess_args["max_mz"]:
-        print(f"datapoint_out: Too high MZ: {max(datadict['mz'])}")
+        # print(f"datapoint_out: Too high MZ: {max(datadict['mz'])}")
         return False
 
     # filter little peaks so it doesn't get kicked out    
@@ -192,7 +192,7 @@ def filter_datapoints(datapoint, preprocess_args):
 
     # filter long spectra
     if len(mz) > preprocess_args["max_num_peaks"]:
-        print(f"datapoint_out: Too long spectra: {len(mz)}")
+        # print(f"datapoint_out: Too long spectra: {len(mz)}")
         return False
 
     return True

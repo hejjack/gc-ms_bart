@@ -8,6 +8,9 @@ import typer
 import yaml
 from pathlib import Path
 from typing import Dict
+from tokenizers import Tokenizer
+import peft
+
 
 # custom code
 from callbacks import PredictionLogger
@@ -16,7 +19,6 @@ from data_utils import SpectroDataCollator, load_all_datapipes
 from bart_spektro.modeling_bart_spektro import BartSpektroForConditionalGeneration
 from bart_spektro.configuration_bart_spektro import BartSpektroConfig
 from bart_spektro.selfies_tokenizer import hardcode_build_selfies_tokenizer
-from tokenizers import Tokenizer
 
 
 app = typer.Typer()
@@ -45,6 +47,125 @@ def build_tokenizer(tokenizer_path: str) -> transformers.PreTrainedTokenizerFast
                                         pad_token="<pad>",
                                         is_split_into_words=True)
     return tokenizer
+
+def set_batch_size(hf_training_args: Dict):
+    """
+    Set batch sizes and gradient accumulation steps. If auto_bs is True, it computes the per device batch sizes and gas based on
+    given 'effective_{train, eval}_batch_size', number of GPUs, GPU RAM, and the size of model ('base' or 'large'). If auto_bs is False
+    or not provided, it uses the batch size and gas provided in hf_training_args - 'per_device_{train, eval}_batch_size',
+    'gradient_accumulation_steps' and 'eval_accumulation_steps'.
+    
+    Parameters:
+    -----------
+    hf_training_args (Dict): dictionary with training arguments
+
+    Returns:
+    --------
+    Dict: dictionary with updated training arguments
+    """
+
+    cvd = os.environ['CUDA_VISIBLE_DEVICES']
+    gpu_ram = torch.cuda.get_device_properties(0).total_memory
+    num_gpu = len(cvd.split(",")) if cvd else 0
+    auto_bs = hf_training_args.pop("auto_bs", False)
+    bart_size = hf_training_args.pop("bart_size", None)
+    if auto_bs:
+        print("\nUsing   A U T O M A T I C   batch size")
+        print("relies heavily on POSSIBLE_TO_FIT_ON_GPU hardcoded constant")
+        print("> it works well for BART base")
+        print("> it is computed from the effective BS)")
+        print("> per device BS and GAS are overwritten")
+        print("> it automatically distinguishes between 40GB and 80GB GPUs")
+
+        # GPU specific batch size
+        train_eff_bs = hf_training_args.pop("effective_train_batch_size")
+        eval_eff_bs = hf_training_args.pop("effective_eval_batch_size")
+        
+        if bart_size == "large":
+            if gpu_ram > 70*1e9:               # 80GB
+                possible_to_fit_on_gpu = 32
+                possible_to_fit_on_gpu_eval = 32
+            else:                              # 40GB
+                possible_to_fit_on_gpu = 16
+                possible_to_fit_on_gpu_eval = 16
+        
+        elif bart_size == "base":
+            if gpu_ram > 70*1e9:               # 80GB
+                possible_to_fit_on_gpu = 128
+                possible_to_fit_on_gpu_eval = 64  
+            else:                              # 40GB
+                possible_to_fit_on_gpu = 64
+                possible_to_fit_on_gpu_eval = 32  
+        else:
+            raise ValueError("bart_size must be provided in hf_training_args if auto_bs is True")    
+
+        gas = train_eff_bs // (num_gpu * possible_to_fit_on_gpu)
+        train_eff_bs = gas * num_gpu * possible_to_fit_on_gpu
+
+        eas = eval_eff_bs // (num_gpu * possible_to_fit_on_gpu_eval)
+        eval_eff_bs = eas * num_gpu * possible_to_fit_on_gpu_eval
+
+        if gas == 0 or eas == 0:
+            print("\nAUTO BS: Effective batch size (train or eval) is TOO SMALL for the type and num of GPUs")
+            print("> use LESS GPUs or INCREASE effective batch size")
+        else:
+            print("\nAUTO BS")
+            print(f"> GAS: {gas}")
+            print(f"> effective train batch size: {gas * num_gpu * possible_to_fit_on_gpu}")
+            print(f"> effective eval batch size: {eas * num_gpu * possible_to_fit_on_gpu_eval}")
+
+        hf_training_args["per_device_train_batch_size"] = possible_to_fit_on_gpu
+        hf_training_args["per_device_eval_batch_size"] = possible_to_fit_on_gpu_eval
+        hf_training_args["gradient_accumulation_steps"] = gas
+        hf_training_args["eval_accumulation_steps"] = gas
+
+    else:
+        print("Using   M A N U A L   batch size")
+        hf_training_args.pop("effective_train_batch_size", None)  # these have to be removed
+        hf_training_args.pop("effective_eval_batch_size", None)   # these have to be removed
+
+    print(f"> train batch size per GPU: {hf_training_args['per_device_train_batch_size']}")
+    print(f"> eval batch size per GPU: {hf_training_args['per_device_eval_batch_size']}")
+    print(f"> gradient accumulation steps: {hf_training_args['gradient_accumulation_steps']}")
+    print(f"> eval accumulation steps: {hf_training_args['eval_accumulation_steps']}")
+    print(f"> num of GPUs: {num_gpu}")
+    print(f"> GPU RAM: {gpu_ram}")
+
+    return hf_training_args
+
+
+def freeze_model(model, train_using_peft, train_fc1_only, clever_freeze):
+    if train_using_peft:
+        peft_config = peft.get_peft_config(peft_config_dict)
+        model = peft.get_peft_model(model, peft_config)
+
+    if train_fc1_only:
+        for param in model.parameters():
+            param.requires_grad = False
+
+        for name, param in model.named_parameters():
+            if "fc1" in name:
+                param.requires_grad = True
+        for name, param in model.get_decoder().named_parameters(): # type: ignore
+            if "embed" in name:
+                param.requires_grad = True
+
+    if clever_freeze:
+        for param in model.parameters():
+            param.requires_grad = False
+
+        for name, param in model.named_parameters():
+            if "bias" in name:
+                param.requires_grad = True
+
+        for name, param in model.get_encoder().named_parameters(): # type: ignore
+            if "fc1" in name:
+                param.requires_grad = True
+
+        for name, param in model.get_decoder().named_parameters(): # type: ignore
+            if "encoder_attn" in name or "fc1" in name or "embed" in name:
+                param.requires_grad = True
+
 
 
 def get_spectro_config(model_args: Dict, tokenizer: transformers.PreTrainedTokenizerFast) -> BartSpektroConfig:
@@ -126,77 +247,14 @@ def main(config_file: Path = typer.Option(..., dir_okay=False, help="Path to the
     example_gen_args = config["example_generation_args"]
     tokenizer_path = model_args["tokenizer_path"]
     use_wandb = hf_training_args["report_to"] == "wandb"
+    # get freeze args
+    train_using_peft = model_args.pop("train_using_peft", False)
+    train_fc_only = model_args.pop("train_fc_only", False)
+    clever_freeze = model_args.pop("clever_freeze", False)
 
-    ##################### set bs and gas ###################### # TODO move to a function
-    ### set bs and gas    
-    gpu_ram = torch.cuda.get_device_properties(0).total_memory
-    num_gpu = len(cvd.split(",")) if cvd else 0
-    auto_bs = hf_training_args.pop("auto_bs", False)
-    bart_size = hf_training_args.pop("bart_size", None)
-    if auto_bs:
-        print("\nUsing   A U T O M A T I C   batch size")
-        print("relies heavily on POSSIBLE_TO_FIT_ON_GPU hardcoded constant")
-        print("> it works well for BART base")
-        print("> it is computed from the effective BS)")
-        print("> per device BS and GAS are overwritten")
-        print("> it automatically distinguishes between 40GB and 80GB GPUs")
 
-        # GPU specific batch size
-        train_eff_bs = hf_training_args.pop("effective_train_batch_size")
-        eval_eff_bs = hf_training_args.pop("effective_eval_batch_size")
+    hf_training_args = set_batch_size(hf_training_args)
         
-        if bart_size == "large":
-            if gpu_ram > 70*1e9:               # 80GB
-                possible_to_fit_on_gpu = 32
-                possible_to_fit_on_gpu_eval = 32
-            else:                              # 40GB
-                possible_to_fit_on_gpu = 16
-                possible_to_fit_on_gpu_eval = 16
-        
-        elif bart_size == "base":
-            if gpu_ram > 70*1e9:               # 80GB
-                possible_to_fit_on_gpu = 128
-                possible_to_fit_on_gpu_eval = 64  
-            else:                              # 40GB
-                possible_to_fit_on_gpu = 64
-                possible_to_fit_on_gpu_eval = 32  
-        else:
-            raise ValueError("bart_size must be provided in hf_training_args if auto_bs is True")    
-
-        gas = train_eff_bs // (num_gpu * possible_to_fit_on_gpu)
-        train_eff_bs = gas * num_gpu * possible_to_fit_on_gpu
-
-        eas = eval_eff_bs // (num_gpu * possible_to_fit_on_gpu_eval)
-        eval_eff_bs = eas * num_gpu * possible_to_fit_on_gpu_eval
-
-        if gas == 0 or eas == 0:
-            print("\nAUTO BS: Effective batch size (train or eval) is TOO SMALL for the type and num of GPUs")
-            print("> use LESS GPUs or INCREASE effective batch size")
-        else:
-            print("\nAUTO BS")
-            print(f"> GAS: {gas}")
-            print(f"> effective train batch size: {gas * num_gpu * possible_to_fit_on_gpu}")
-            print(f"> effective eval batch size: {eas * num_gpu * possible_to_fit_on_gpu_eval}")
-
-        hf_training_args["per_device_train_batch_size"] = possible_to_fit_on_gpu
-        hf_training_args["per_device_eval_batch_size"] = possible_to_fit_on_gpu_eval
-        hf_training_args["gradient_accumulation_steps"] = gas
-        hf_training_args["eval_accumulation_steps"] = gas
-
-    else:
-        print("Using   M A N U A L   batch size")
-        hf_training_args.pop("effective_train_batch_size", None)  # these have to be removed
-        hf_training_args.pop("effective_eval_batch_size", None)   # these have to be removed
-
-    print(f"> train batch size per GPU: {hf_training_args['per_device_train_batch_size']}")
-    print(f"> eval batch size per GPU: {hf_training_args['per_device_eval_batch_size']}")
-    print(f"> gradient accumulation steps: {hf_training_args['gradient_accumulation_steps']}")
-    print(f"> eval accumulation steps: {hf_training_args['eval_accumulation_steps']}")
-    print(f"> num of GPUs: {num_gpu}")
-    print(f"> GPU RAM: {gpu_ram}")
-    ###########################################################
-    
-    
     # set the name for metric choosing the best model (add chosen dataset name)
     if dataset_args.get("dataset_for_choosing_best_model", None):
         hf_training_args["metric_for_best_model"] = enrich_best_metric_name(hf_training_args["metric_for_best_model"], 
@@ -237,22 +295,23 @@ def main(config_file: Path = typer.Option(..., dir_okay=False, help="Path to the
     else:
         model = BartSpektroForConditionalGeneration(bart_spectro_config)
     model.to(device)
-    ######
-    # ic("model embedding shape", model.model.encoder.embed_tokens.weight.shape) ####
-    # ic("tokenizer vocab size: ", len(tokenizer.get_vocab()))
-    # return
-    ######
 
-    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Number of trainable parameters: {num_params}")
-
+    # model freezing
+    assert train_using_peft + train_fc_only + clever_freeze <= 1, "Only one of train_using_peft, train_fc_only, clever_freeze can be True"
+    if train_fc_only or clever_freeze or train_using_peft:
+        freeze_model(model, train_using_peft, train_fc_only, clever_freeze)
+    tuned_params = sum(p.shape.numel() for p in model.parameters() if p.requires_grad)
+    total_params = sum(p.shape.numel() for p in model.parameters())
+    print(f"Number of trained parameters: {tuned_params}/{total_params} = {tuned_params/total_params*100:.2f}%")
 
     # Init wandb
     if use_wandb:
         log_tags = [d for d in dataset_args["datasets"].keys()]
         log_tags.extend(add_tags)
         log_tags.append(wandb_group)
-        log_tags.append(f"params={num_params}")
+        log_tags.append(f"params={total_params}")
+        log_tags.append(f"trained_params={tuned_params}")
+        log_tags.append(f"trained_percentage={tuned_params/total_params*100:.2f}%")
         log_tags.append(f"lr={hf_training_args['learning_rate']}")
         log_tags.append(f"pd_bs={hf_training_args['per_device_train_batch_size']}")
         if additional_info:
