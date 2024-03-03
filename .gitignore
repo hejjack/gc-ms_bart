@@ -30,3 +30,4 @@ tokenizer/training_data/*.txt
 **/__pycache__/**
 **/tmp
 **/*.swp
+tokenizer/training_data/*

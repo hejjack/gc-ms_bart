@@ -7,12 +7,12 @@ data_args:
   datasets: 
   datasets: 
     nist:    # 208908 + 26000
-      train_path: "../data/datasets/NIST/NIST_split_filip/mf100/train.jsonl"
-      valid_path: "../data/datasets/NIST/NIST_split_filip/mf100/valid.jsonl"
+      train_path: "../data/datasets/NIST/NIST_split_filip/train.jsonl"
+      valid_path: "../data/datasets/NIST/NIST_split_filip/valid.jsonl"
       weight: 1.0
       limit_train_split: null  # null for full; limit of head from valid set chosen for validation split
       limit_val_split: 100     # null for full; limit of head from valid set chosen for validation split
-      limit_example_split: 100  # null for full; limit of head chosen for visualized (generated)
+      limit_example_split: 0  # null for full; limit of head chosen for visualized (generated)
       source_token: "<nist>"
     # NEIMS: # NEIMS only for evaluation tracking purposes
     #   train_path: "../data/datasets/4_8M/neims_gen/train.jsonl"
@@ -86,11 +86,11 @@ hf_training_args:
   generation_num_beams: 1
   generation_max_length: 200
   evaluation_strategy: "steps"
-  eval_steps: 100 ### make it match
+  eval_steps: 10 ### make it match
 
-  save_steps: 10000 ### make it match
+  save_steps: 10 ### make it match
   save_strategy: "steps"
-  save_total_limit: 2
+  save_total_limit: 3
 
   load_best_model_at_end: True
   metric_for_best_model: "eval_cos_simil"
