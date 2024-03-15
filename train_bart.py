@@ -163,7 +163,7 @@ def freeze_model(model, train_using_peft, train_fc1_only, clever_freeze):
                 param.requires_grad = True
 
         for name, param in model.get_decoder().named_parameters(): # type: ignore
-            if "encoder_attn" in name or "fc1" in name or "embed" in name:
+            if "encoder_attn" in name or "self_attn" in name or "fc1" in name or "embed" in name:
                 param.requires_grad = True
 
 
