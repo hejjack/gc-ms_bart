@@ -57,9 +57,10 @@ class SpectroDataCollator:
     A class that from a list of dataset elements forms a batch
     """
 
-    def __init__(self, inference_mode=False, restrict_intensities=False):
+    def __init__(self, inference_mode=False, restrict_intensities=False, keep_all_columns=False):
         self.inference_mode = inference_mode
         self.restrict_intensities = restrict_intensities
+        self.keep_all_columns = keep_all_columns
 
     def __call__(
         self, batch: List[Dict[str, list]]
@@ -83,6 +84,11 @@ class SpectroDataCollator:
             labels = [e["labels"] + [-100] * (longest_decoder_sequence - len(e["labels"])) for e in batch] # adding padding
             out["labels"] = torch.tensor(labels)
         
+        if self.keep_all_columns:
+            for k in batch[0].keys():
+                if k not in out:
+                    out[k] = [e[k] for e in batch]
+        
         return out        
 
 
@@ -94,7 +100,7 @@ def position_ids_creator(intensities, log_base, log_shift):
     return list(x.astype("int32"))
 
 
-def preprocess_datapoint(datapoint, source_token, preprocess_args):
+def preprocess_datapoint(datadict, source_token, preprocess_args):
     """
     Preprocess a single datapoint.
     Parameters
@@ -102,25 +108,23 @@ def preprocess_datapoint(datapoint, source_token, preprocess_args):
     datapoint: Dict[str, Any]
         A single datapoint - dictionary containing mzs, intensities and SMILES.
     preprocess_args: Dict[str, Any]
-        Tokenizer, restrict_intensity flag, inference_mode flag, log_base, log_shift, ...
+        tokenizer, restrict_intensities, inference_mode, log_base, log_shift, mol_repr, keep_all_columns (optional), max_cumsum (optional) ...
 
     Returns
     -------
     Dict[str, Any]
         Preprocessed datapoint - dictionary containing input_ids, ?position_ids? and ?labels?.
     """
-    datadict = json.loads(datapoint[1])
+    mzs, intensities = datadict.pop("mz"), datadict.pop("intensity")
 
     # remove zero peak (sometimes in NEIMS data)
-    if datadict["mz"][0] == 0:
-        datadict["mz"] = datadict["mz"][1:]
-        datadict["intensity"] = datadict["intensity"][1:]
+    if mzs[0] == 0:
+        mzs = mzs[1:]
+        intensities = intensities[1:]
         # print("Warning: zero peak occured => removed")
 
-    if preprocess_args["max_cumsum"] is not None:
-        mzs, intensities = cumsum_filtering(datadict["mz"], datadict["intensity"], preprocess_args["max_cumsum"])
-    else:
-        mzs, intensities = datadict["mz"], datadict["intensity"]
+    if preprocess_args.get("max_cumsum", None) is not None:
+        mzs, intensities = cumsum_filtering(mzs, intensities, preprocess_args["max_cumsum"])
     
     out = {"input_ids": [round(mz) for mz in mzs]}
     
@@ -130,17 +134,22 @@ def preprocess_datapoint(datapoint, source_token, preprocess_args):
                                                    preprocess_args["log_shift"])
 
     if not preprocess_args["inference_mode"]:
-        canon_mol_repr = remove_stereochemistry_and_canonicalize(datadict["smiles"])
-        assert canon_mol_repr is not None, f"Corrupted SMILES: {datadict['smiles']} not filtered out!"
+        smiles = datadict.pop("smiles")
+        canon_mol_repr = remove_stereochemistry_and_canonicalize(smiles)
+        assert canon_mol_repr is not None, f"Corrupted SMILES: {smiles} not filtered out!"
         if preprocess_args["mol_repr"] == "selfies":  # if selfies, encode it
             canon_mol_repr = sf.encoder(canon_mol_repr)  # encode smiles to selfies
         out["mol_repr"] = canon_mol_repr
         source_id = preprocess_args["tokenizer"].encode(source_token)[0]
         out["labels"] = mol_repr_to_labels(canon_mol_repr, preprocess_args["tokenizer"], source_id)
+    
+    if preprocess_args.get("keep_all_columns", False):
+        out.update(datadict)
+
     return out
 
 
-def filter_datapoints(datapoint, preprocess_args):
+def filter_datapoints(datadict, preprocess_args):
     """
     Filter out datapoints that are too long.
     Parameters
@@ -155,8 +164,6 @@ def filter_datapoints(datapoint, preprocess_args):
     bool
         Whether the datapoint should be kept.
     """
-    datadict = json.loads(datapoint[1])
-
     # # canonicalization + possible selfies transformation
     canon_mol_repr = remove_stereochemistry_and_canonicalize(datadict["smiles"])
 
@@ -185,7 +192,7 @@ def filter_datapoints(datapoint, preprocess_args):
         return False
 
     # filter little peaks so it doesn't get kicked out    
-    if preprocess_args["max_cumsum"] is not None:
+    if preprocess_args.get("max_cumsum", None) is not None:
         mz, _ = cumsum_filtering(datadict["mz"], datadict["intensity"], preprocess_args["max_cumsum"])
     else:
         mz, _ = datadict["mz"], datadict["intensity"]
@@ -205,6 +212,24 @@ def build_single_datapipe(json_file: str,
                           source_token: Optional[str] = None,
                           preprocess_args: Optional[Dict[str, Any]] = None,
                         ):
+    """
+    Build a single datapipe from a json file.
+    Parameters
+    ----------
+    json_file: str
+        Path to the jsonl data file.
+    shuffle: bool
+        Whether to shuffle the dataset.
+    buffer_size: int
+        Buffer size for shuffling.
+    limit: int
+        Limit the number of datapoints (0, limit). 
+    source_token: str
+        Source token for the tokenizer.
+    preprocess_args: Dict[str, Any]
+        Preprocessing and filtering arguments. 
+    """
+
     if preprocess_args:
         assert source_token is not None, "source_token must be provided if preprocess_args are provided (and thus preprocessing is required)"
 
@@ -220,10 +245,11 @@ def build_single_datapipe(json_file: str,
     if limit is not None:
         datapipe = datapipe.header(limit)
     if preprocess_args:
+        datapipe = datapipe.map(lambda x: json.loads(x[1]))
         datapipe = datapipe.filter(filter_fn=lambda d: filter_datapoints(d, preprocess_args), ) # filter out too long data and stuff
         datapipe = datapipe.map(lambda d: preprocess_datapoint(d, source_token, preprocess_args))
     else:
-        datapipe = datapipe.map(lambda x: json.loads(x[1])) # here change the function to preprocess_datapoint
+        datapipe = datapipe.map(lambda x: json.loads(x[1]))
     return datapipe
 
 

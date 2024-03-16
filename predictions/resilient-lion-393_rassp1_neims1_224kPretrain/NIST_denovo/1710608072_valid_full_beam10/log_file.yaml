@@ -1,9 +1,9 @@
 command: ../predict.py --checkpoint ../checkpoints/finetune/resilient-lion-393_rassp1_neims1_224kPretrain/checkpoint-73738
   --output-folder ../predictions --config-file ../configs/predict_config_nist_valid.yaml
-cuda_visible_devices: '0'
+cuda_visible_devices: '2'
 dataloader:
   batch_size: 1
-  num_workers: 3
+  num_workers: 1
 dataset:
   data_path: ../data/datasets/NIST/NIST_split_filip/denovo_data/morgan_cosine/valid_with_denovo_info.jsonl
   data_split: valid
@@ -22,7 +22,8 @@ generation_args:
   top_k: null
   top_p: null
 preprocess_args:
-  inference_mode: true
+  inference_mode: false
+  keep_all_columns: true
   log_base: 1.7
   log_shift: 9
   max_cumsum: null
@@ -141,9 +142,5 @@ preprocess_args:
     padding_side: right
     truncation_side: right
     verbose: true
-start_loading_time: 04/03/2024 18:06:51
+start_loading_time: 16/03/2024 16:54:32
 tokenizer_path: ../tokenizer/bbpe_tokenizer/bart_bbpe_tokenizer_1M_mf10000000.model
-finished_time_utc: 04/03/2024 23:48:36
-generation_time: 05:41:41
-wall_time_utc: 05:41:44
-
