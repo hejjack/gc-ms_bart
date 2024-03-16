@@ -1,5 +1,6 @@
 # imports
 from io import TextIOWrapper
+from typing import Any, Callable, Optional
 import pandas as pd
 import pathlib
 import typer
@@ -14,6 +15,8 @@ import plotly.express as px
 import yaml
 import time
 from datetime import datetime
+
+from data_utils import build_single_datapipe, filter_datapoints
 
 RDLogger.DisableLog('rdApp.*')
 
@@ -38,21 +41,53 @@ def parse_predictions_path(predictions_path: pathlib.Path) -> tuple:
     return data_name, data_split, data_range
 
 
+def range_filter(data_range: range) -> Callable[[Any], bool]:
+   count = data_range.start
+   def f(_: Any) -> bool:
+        nonlocal count 
+        count += 1
+        return count <= data_range.stop
+   return f
+
+
 def load_labels_from_dataset(dataset_path: pathlib.Path, data_range: range, do_denovo: bool = False) -> tuple:
     """Load the labels from the dataset"""
     df = pd.read_json(dataset_path, lines=True, orient="records")
     if not data_range:
         data_range = range(len(df))
-    df_ranged = df.iloc[data_range]
+    df_ranged = df.iloc[data_range] # TODO
     simles_list = df_ranged["smiles"].tolist()
     
     smiles_sim_of_closest = None
     if do_denovo:
         assert "smiles_sim_of_closest" in df_ranged.columns, "smiles_sim_of_closest column not found in labels, not able to do DENOVO evaluation"
         smiles_sim_of_closest = df_ranged["smiles_sim_of_closest"].tolist()
-        return iter(simles_list), smiles_sim_of_closest
 
     return iter(simles_list), smiles_sim_of_closest
+
+
+def load_labels_to_datapipe(dataset_path: pathlib.Path, 
+                            data_range: range = range(0, 0), 
+                            do_denovo: bool = False, 
+                            filtering_args: dict = {"max_num_peaks": 300, "max_mz": 500, "max_mol_repr_len": 100, "mol_repr": "smiles"}) -> tuple:
+    """Load the labels from the dataset"""
+
+    assert set(["max_num_peaks", "max_mz", "max_mol_repr_len", "mol_repr"]).issubset(filtering_args.keys()), "filtering_args has to contain max_num_peaks, max_mz, max_mol_repr_len and mol_repr"
+
+    datapipe = build_single_datapipe(str(dataset_path), shuffle=False)
+
+    datapipe = datapipe.filter(filter_fn=lambda d: filter_datapoints(d, filtering_args)) # filter out too long data and stuff
+    if data_range:
+        datapipe = datapipe.header(data_range.stop)  # speeding up for slices near to the beginning
+        datapipe = datapipe.filter(filter_fn=range_filter(data_range))  # actual slicing
+    
+    smiles_sim_of_closest_datapipe = None
+    if do_denovo:
+        smiles_datapipe, smiles_sim_of_closest_datapipe = datapipe.fork(num_instances=2, buffer_size=-1,)  # 'copy' (fork) the datapipe into two 'new' 
+        smiles_sim_of_closest_datapipe = iter(smiles_sim_of_closest_datapipe.map(lambda d: d["smiles_sim_of_closest"]))
+    smiles_datapipe = iter(smiles_datapipe.map(lambda d: d["smiles"]))
+    
+    return smiles_datapipe, smiles_sim_of_closest_datapipe if do_denovo else None
 
 
 def move_file_pointer(num_lines: int, file_pointer: TextIOWrapper) -> None:
@@ -99,16 +134,23 @@ def main(
     predictions_path: pathlib.Path = typer.Option(..., dir_okay=False, file_okay=True, readable=True, help="Path to the jsonl file with caption predictions"),
     labels_path: pathlib.Path = typer.Option(None, dir_okay=False, file_okay=True, readable=True, help="either .smi file or .jsonl (DataFrame with 'smiles' column)"),
     datasets_folder: pathlib.Path = typer.Option("data/datasets", dir_okay=True, file_okay=False, readable=True, help="Path to the folder containing the datasets (used for automatic labels deduction)"),
-    do_denovo: bool = typer.Option(False, help="Whether to evaluate the predictions on the denovo task (labels need to contain precomputed 'smiles_sim_of_closest' out of molecules in reference library)"),
-
+    config_file: pathlib.Path = typer.Option(..., dir_okay=False, file_okay=True, readable=True, help="Path to the config file"),
 ) -> None:
+
+    with open(config_file, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    do_denovo = config["do_denovo"]
+    on_the_fly = config["on_the_fly"]
 
     data_name, data_split, data_range = parse_predictions_path(predictions_path)
     num_lines_predictions = line_count(predictions_path)
     if data_range:
         assert num_lines_predictions == len(data_range), "Number of predictions does not match the data range"
     else:
-        assert num_lines_predictions == line_count(labels_path), "No data_range specified, num of predictions does not match num of labels "
+        if on_the_fly: # filtering will reduce the num of labels. Does not have to have the same length, but RISKY
+            print("WARNING: on-the-fly preprocessing is enabled, data_range is not specified, be sure to have exactly the same preprocessing setup as for generation, otherwise will return incorrrect results")
+        else: # expecting full range, already preprocessed - has to have the same number of lines
+            assert num_lines_predictions == line_count(labels_path), "No data_range specified, num of predictions does not match num of labels "
 
     if labels_path is None:
         labels_path = datasets_folder / data_name / f"{data_name}_{data_split}.smi"
@@ -123,19 +165,46 @@ def main(
                "as range, please check they are correct")
     
     if labels_path.suffix == ".jsonl":
-        labels_iterator, smiles_sim_of_closest = load_labels_from_dataset(labels_path, data_range, do_denovo=do_denovo)
+        if on_the_fly:
+            labels_iterator, smiles_sim_of_closest = load_labels_to_datapipe(labels_path, data_range, do_denovo=do_denovo)
+        else:
+            labels_iterator, smiles_sim_of_closest = load_labels_from_dataset(labels_path, data_range, do_denovo=do_denovo)
     elif labels_path.suffix == ".smi":
         labels_iterator = labels_path.open("r")
         move_file_pointer(data_range.start, labels_iterator)
+
+    additional_file_info = f"{config['fingerprint_type']}_{config['simil_function']}"
+    # set FP generator
+    fpgen = None
+    if config["fingerprint_type"] == "morgan":
+        fpgen = Chem.AllChem.GetMorganGenerator(radius=2, fpSize=1024)
+    elif config["fingerprint_type"] == "daylight":
+        fpgen = Chem.AllChem.GetRDKitFPGenerator()
+    else: 
+        raise ValueError("fingerprint_type has to be either 'morgan' or 'daylight'")
+    print(f">> Setting up   {config['fingerprint_type']}   fingerprint generator. Do your data CORRESPOND?")
+
+    # set similarity
+    simil_function = None
+    if config["simil_function"] == "tanimoto":
+        simil_function = DataStructs.FingerprintSimilarity
+    elif config["simil_function"] == "cosine":
+        simil_function = DataStructs.CosineSimilarity
+    else: 
+        raise ValueError("similarity_type has to be either 'tanimoto' or 'cosine'")
+    print(f">> Setting up   {config['simil_function']}   similarity function. Do your data CORRESPOND?")
+
     
     parent_dir = predictions_path.parent
     pred_f = predictions_path.open("r")
     log_file = (parent_dir / "log_file.yaml").open("a+")
-    fp_simil_fails_f = (parent_dir / "fp_simil_fails.csv").open("w+")
+    fp_simil_fails_f = (parent_dir / f"fp_simil_fails_{additional_file_info}.csv").open("w+")
     fp_simil_fails_f.write("pred,label\n")
     pred_jsonl = {}
     counter_empty_preds = 0
     start_time = time.time()
+
+    test_file = open("TEST_SMILES_GT_LABELS_EVAL.smi", "w+")   # TEST 
 
     simil_all_simils = defaultdict(list) # all simils sorted by similarity with gt (at each ranking)
     prob_all_simils = defaultdict(list)   # all simils sorted by probability (at each ranking)
@@ -146,18 +215,28 @@ def main(
             break
         preds = json.loads(pred_jsonl)
         gt_smiles = next(labels_iterator)
+        test_file.write(gt_smiles + "\n")   ############################ TEST
 
         if not preds:
             counter_empty_preds += 1
             simil_all_simils[0].append(0)
             prob_all_simils[0].append(0)
             continue
-        
+
+        # original way: daylight fingerprint (path-based) tanimoto similarity
+        # pred_mols = [Chem.MolFromSmiles(smiles) for smiles in preds.keys()]
+        # gt_mol = Chem.MolFromSmiles(gt_smiles)
+        # pred_fps = [Chem.RDKFingerprint(mol) for mol in pred_mols]
+        # gt_fp = Chem.RDKFingerprint(gt_mol)
+        # smiles_simils = [DataStructs.FingerprintSimilarity(fp, gt_fp) for fp in pred_fps]
+
+        # new: adjustable by config
         pred_mols = [Chem.MolFromSmiles(smiles) for smiles in preds.keys()]
         gt_mol = Chem.MolFromSmiles(gt_smiles)
-        pred_fps = [Chem.RDKFingerprint(mol) for mol in pred_mols]
-        gt_fp = Chem.RDKFingerprint(gt_mol)
-        smiles_simils = [DataStructs.FingerprintSimilarity(fp, gt_fp) for fp in pred_fps]
+        pred_fps = [fpgen.GetFingerprint(mol) for mol in pred_mols]
+        gt_fp = fpgen.GetFingerprint(gt_mol)
+        smiles_simils = [simil_function(fp, gt_fp) for fp in pred_fps]
+
 
         prob_simil = np.stack(np.array(list(zip(preds.values(), smiles_simils))))
 
@@ -184,8 +263,9 @@ def main(
         # nejlepsi podle prob minus DB predikce (+ histogram)
         # prumer simil minus DB predikce
         # prumer prob minus DB predikce
-        simil_preds_minus_closest = np.array(simil_all_simils[0]) - np.array(smiles_sim_of_closest)
-        prob_preds_minus_closest = np.array(prob_all_simils[0]) - np.array(smiles_sim_of_closest)
+        smiles_sim_of_closest = np.array(list(smiles_sim_of_closest))
+        simil_preds_minus_closest = np.array(simil_all_simils[0]) - smiles_sim_of_closest
+        prob_preds_minus_closest = np.array(prob_all_simils[0]) - smiles_sim_of_closest
             
 
     fig_similsort = diagram_from_dict(simil_all_simils, title="Similarity on the k-th position (sorted by ground truth similarity)")
@@ -194,22 +274,25 @@ def main(
     fig_top1_simil_simils = px.histogram(df_top1, x="simil", nbins=100, labels={'x':'similarity', 'y':'count'})
     fig_top1_prob_simils = px.histogram(df_top1, x="prob", nbins=100, labels={'x':'similarity', 'y':'count'})
 
-    fig_similsort.write_image(str(parent_dir / "topk_similsort.png"))
-    fig_probsort.write_image(str(parent_dir / "topk_probsort.png"))
-    fig_top1_simil_simils.write_image(str(parent_dir / "top1_simil_simils.png"))
-    fig_top1_prob_simils.write_image(str(parent_dir / "top1_prob_simils.png"))
+    fig_similsort.write_image(str(parent_dir / f"topk_similsort_{additional_file_info}.png"))
+    fig_probsort.write_image(str(parent_dir / f"topk_probsort_{additional_file_info}.png"))
+    fig_top1_simil_simils.write_image(str(parent_dir / f"top1_simil_simils_{additional_file_info}.png"))
+    fig_top1_prob_simils.write_image(str(parent_dir / f"top1_prob_simils_{additional_file_info}.png"))
 
     if do_denovo: # plots for denovo
         fig_simil_preds_minus_closest = px.histogram(x=simil_preds_minus_closest, nbins=100, labels={'x':'FPSD score (FingerPrintSimilDiff)', 'y':'count'})
         fig_prob_preds_minus_closest = px.histogram(x=prob_preds_minus_closest, nbins=100, labels={'x':'FPSD score (FingerPrintSimilDiff)', 'y':'count'})
-        fig_simil_preds_minus_closest.write_image(str(parent_dir / "fpsd_score_similsort.png"))
-        fig_prob_preds_minus_closest.write_image(str(parent_dir / "fpsd_score_probsort.png"))
+        fig_simil_preds_minus_closest.write_image(str(parent_dir / f"fpsd_score_similsort_{additional_file_info}.png"))
+        fig_prob_preds_minus_closest.write_image(str(parent_dir / f"fpsd_score_probsort_{additional_file_info}.png"))
 
     finish_time = time.time()
     num_precise_preds_similsort = sum(np.array(simil_all_simils[0]) == 1) 
     num_precise_preds_probsort = sum(np.array(prob_all_simils[0]) == 1)
+    num_better_than_threshold_similsort = sum(np.array(simil_all_simils[0]) > config["threshold"])
+    num_better_than_threshold_probsort = sum(np.array(prob_all_simils[0]) > config["threshold"])
     logs = {"evaluation":
-            {"topk_similsort": str(simil_average_simil_kth),
+            {"eval_config": config,
+             "topk_similsort": str(simil_average_simil_kth),
              "topk_probsort": str(prob_average_simil_kth),
              "num_predictions_at_k_counter": str(num_predictions_at_k_counter),
              "counter_empty_preds": str(counter_empty_preds),
@@ -217,8 +300,12 @@ def main(
              "counter_fp_simil_fails_preds": str(counter_fp_simil_fails_preds),
              "num_similsort_precise_preds": str(num_precise_preds_similsort),
              "num_probsort_precise_preds": str(num_precise_preds_probsort),
+             "num_better_than_threshold_similsort": str(num_better_than_threshold_similsort),
+             "num_better_than_threshold_probsort": str(num_better_than_threshold_probsort),
              "percentage_of_precise_preds_similsort": str(num_precise_preds_similsort / len(simil_all_simils[0])),
              "percentage_of_precise_preds_probsort": str(num_precise_preds_probsort / len(prob_all_simils[0])),
+             "percentage_of_better_than_threshold_similsort": str(num_better_than_threshold_similsort / len(simil_all_simils[0])),
+             "percentage_of_better_than_threshold_probsort": str(num_better_than_threshold_probsort / len(prob_all_simils[0])),
              "start_time_utc": datetime.utcfromtimestamp(start_time).strftime("%d/%m/%Y %H:%M:%S"),
              "eval_time": f"{time.strftime('%H:%M:%S', time.gmtime(finish_time - start_time))}"
             }}
@@ -226,7 +313,7 @@ def main(
     if do_denovo:
         logs["evaluation"]["denovo"] = {"mean_fpsd_score_similsort": str(simil_preds_minus_closest.mean()),
                                         "mean_fpsd_score_probsort": str(prob_preds_minus_closest.mean()),
-                                        "mean_db_score": str(np.array(smiles_sim_of_closest).mean()),
+                                        "mean_db_score": str(smiles_sim_of_closest.mean()),
                                         "percentage_of_BART_wins_similsort": str(sum(simil_preds_minus_closest > 0) / len(simil_preds_minus_closest)),
                                         "percentage_of_BART_wins_probsort": str(sum(prob_preds_minus_closest > 0) / len(prob_preds_minus_closest)),
                                         }
