@@ -1,0 +1,7 @@
+/storage/brno2/home/ahajek/miniconda3/envs/BARTtrainH100
+0 _CudaDeviceProperties(name='NVIDIA H100 80GB HBM3', major=9, minor=0, total_memory=81041MB, multi_processor_count=132)
+WARNING: This model is using   O N E   dictionary both for encoder and decoder.
+huggingface/tokenizers: The current process just got forked, after parallelism has already been used. Disabling parallelism to avoid deadlocks...
+To disable this warning, you can either:
+	- Avoid using `tokenizers` before the fork if possible
+	- Explicitly set the environment variable TOKENIZERS_PARALLELISM=(true | false)
