@@ -1,4 +1,3 @@
-python ../predict.py --checkpoint ../checkpoints/finetune_deprecated/lucky-tree-293_4_8M_rassp1_neims1_224kPretrain/checkpoint-73440 \
-                                            --output-folder ../predictions \
-                                            --config-file ../configs/predict_config_nist_valid_old_gen2.yaml \
-                                            # --data-range "0:200"
+python ../predict.py --checkpoint ../checkpoints/finetune/efficient-frog-407_rassp1_neims1_200pt_300ft/checkpoint-73738 \
+                        --output-folder ../predictions \
+                        --config-file ../configs/predict_config_nist_valid_mf10.yaml \

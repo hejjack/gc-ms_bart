@@ -174,7 +174,7 @@ def get_spectro_config(model_args: Dict, tokenizer: transformers.PreTrainedToken
     return BartSpektroConfig(separate_encoder_decoder_embeds=model_args["separate_encoder_decoder_embeds"],
                              vocab_size=len(tokenizer.get_vocab()),
                              decoder_max_position_embeddings=model_args["decoder_seq_len"],
-                             encoder_max_position_embeddings=model_args.get("encoder_seq_len", None), # specify only when restricting intensities, otherwise encoder embedding matrix is sized by max_log_id
+                             encoder_max_position_embeddings=model_args.get(" ", None), # specify only when restricting intensities, otherwise encoder embedding matrix is sized by max_log_id
                              max_length=model_args["decoder_seq_len"],
                              max_mz=model_args["max_mz"],
                              tie_word_embeddings=False,     # exrtremely important - enables two vocabs, don't change
