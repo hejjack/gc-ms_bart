@@ -5,7 +5,7 @@ dataloader:
   batch_size: 1
   num_workers: 1
 dataset:
-  data_path: ../data/datasets/NIST/NIST_split_filip/denovo_data/morgan_cosine/valid_with_denovo_info.jsonl
+  data_path: ../data/datasets/NIST/NIST_split_filip/denovo_data/valid_with_denovo_info.jsonl
   data_split: valid
   dataset_name: NIST_denovo
 general:
@@ -147,3 +147,44 @@ tokenizer_path: ../tokenizer/bbpe_tokenizer/bart_bbpe_tokenizer_1M_mf10000000.mo
 finished_time_utc: 20/03/2024 14:50:42
 generation_time: 03:21:44
 wall_time_utc: 03:22:02
+evaluation:
+  counter_datapoints_tested: '28177'
+  counter_empty_preds: '6'
+  counter_fp_simil_fails_preds: '1925'
+  denovo:
+    mean_db_score: '0.5088532313229623'
+    mean_fpsd_score_probsort: '0.06737909348582476'
+    mean_fpsd_score_similsort: '0.20190673620708363'
+    percentage_of_BART_wins_probsort: '0.5707491926038968'
+    percentage_of_BART_wins_similsort: '0.7396813003513504'
+  eval_config:
+    do_denovo: true
+    filtering_args:
+      max_mol_repr_len: 100
+      max_mz: 500
+      max_num_peaks: 300
+      mol_repr: smiles
+    fingerprint_type: daylight
+    on_the_fly: true
+    save_best_predictions: true
+    simil_function: tanimoto
+    threshold: 0.85
+  eval_time: 00:04:57
+  labels_path: ../data/datasets/NIST/NIST_split_filip/denovo_data/valid_with_denovo_info.jsonl
+  num_better_than_threshold_probsort: '8609'
+  num_better_than_threshold_similsort: '13494'
+  num_predictions_at_k_counter: '[28177, 28132, 28027, 27831, 27489, 26977, 26027,
+    24441, 21572, 15993]'
+  num_probsort_precise_preds: '6564'
+  num_similsort_precise_preds: '11492'
+  percentage_of_better_than_threshold_probsort: '0.30553288142811513'
+  percentage_of_better_than_threshold_similsort: '0.4789012315008695'
+  percentage_of_precise_preds_probsort: '0.23295595698619442'
+  percentage_of_precise_preds_similsort: '0.40785037441885225'
+  start_time_utc: 20/03/2024 16:33:16
+  topk_probsort: '[0.576232324808787, 0.5145303548944814, 0.48045215615421666, 0.4590386895706297,
+    0.44469254882838977, 0.4329932649007559, 0.42149152436333037, 0.4071114265591474,
+    0.3917665719046815, 0.3723765652925255]'
+  topk_similsort: '[0.710759967530046, 0.5978268307998248, 0.5312898973669331, 0.48022622454724695,
+    0.43785134012818094, 0.4003629097912506, 0.3656256343440555, 0.33199191821813523,
+    0.2979045968160581, 0.26200037053395775]'
