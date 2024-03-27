@@ -9,6 +9,3 @@ python ../precompute_denovo_index.py \
            --num_processes 16 \
            --fingerprint_type ${FP_TYPE} \
            --simil_function ${SIMIL_FUN}
- in with
-
-￼Masaryk University

@@ -265,7 +265,7 @@ def main(
         update_counter(prob_simil[simil_decreasing_index][:, 1], simil_all_simils)
         update_counter(prob_simil[prob_decreasing_index][:, 1], prob_all_simils)
 
-        if config["save_best_predictions"]:   #################################### notDONE
+        if config["save_best_predictions"]:
             if save_best_to_new_df:
                 all_gt_smiless.append(gt_smiles)
                 simil_best_smiless.append(pred_smiless[simil_decreasing_index[0]])

@@ -90,7 +90,6 @@ class SpectroDataCollator:
             for k in batch[0].keys():
                 if k not in out:
                     out[k] = [e[k] for e in batch]
-        
         return out        
 
 
