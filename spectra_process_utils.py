@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import List, Optional
 from matchms import Spectrum
 from matchms.importing import load_from_msp
-from rdkit import Chem
+from rdkit import Chem, DataStructs
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -415,3 +415,24 @@ def cumsum_filtering(mz: np.ndarray,
     i = i_cut[index]
 
     return mz, i
+
+
+def get_fp_generator(fp_type: str):
+    if fp_type == "morgan":
+        fpgen = Chem.AllChem.GetMorganGenerator(radius=2, fpSize=1024)
+    elif fp_type == "daylight":
+        fpgen = Chem.AllChem.GetRDKitFPGenerator()
+    else: 
+        raise ValueError("fingerprint_type has to be either 'morgan' or 'daylight'")
+    return fpgen
+
+
+def get_simil_function(simil_type: str):
+    simil_function = None
+    if simil_type == "tanimoto":
+        simil_function = DataStructs.FingerprintSimilarity
+    elif simil_type == "cosine":
+        simil_function = DataStructs.CosineSimilarity
+    else: 
+        raise ValueError("similarity_type has to be either 'tanimoto' or 'cosine'")
+    return simil_function

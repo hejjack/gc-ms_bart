@@ -300,3 +300,41 @@ evaluation:
   topk_similsort: '[0.7856849208798774, 0.7155213330493574, 0.6690407132590925, 0.6371125030792254,
     0.6039825872412549, 0.575356514703675, 0.5377511495437965, 0.49744832246239923,
     0.46465188000081514, 0.42938959711615815]'
+evaluation:
+  counter_datapoints_tested: '200'
+  counter_empty_preds: '0'
+  counter_fp_simil_fails_preds: '14'
+  denovo:
+    mean_db_score: '0.517494987469508'
+    mean_fpsd_score_probsort: '0.07333174190299438'
+    mean_fpsd_score_similsort: '0.18994781329629795'
+    percentage_of_BART_wins_probsort: '0.555'
+    percentage_of_BART_wins_similsort: '0.755'
+  eval_config:
+    do_denovo: true
+    filtering_args:
+      max_mol_repr_len: 100
+      max_mz: 500
+      max_num_peaks: 300
+      mol_repr: smiles
+    fingerprint_type: daylight
+    on_the_fly: true
+    simil_function: tanimoto
+    threshold: 0.85
+  eval_time: 00:00:03
+  num_better_than_threshold_probsort: '68'
+  num_better_than_threshold_similsort: '101'
+  num_predictions_at_k_counter: '[200, 200, 200, 197, 195, 192, 191, 180, 163, 126]'
+  num_probsort_precise_preds: '47'
+  num_similsort_precise_preds: '80'
+  percentage_of_better_than_threshold_probsort: '0.34'
+  percentage_of_better_than_threshold_similsort: '0.505'
+  percentage_of_precise_preds_probsort: '0.235'
+  percentage_of_precise_preds_similsort: '0.4'
+  start_time_utc: 17/03/2024 09:56:54
+  topk_probsort: '[0.5908267293725024, 0.5457523112759552, 0.4939838266349313, 0.472310107177345,
+    0.4531082887595812, 0.45881218323996786, 0.4496214842632883, 0.4178773127683596,
+    0.41542546632450406, 0.3925083502098351]'
+  topk_similsort: '[0.7074428007658059, 0.6078589498694014, 0.5489150996883886, 0.5071985857188488,
+    0.4663956400625423, 0.43404167541715066, 0.3955281227920322, 0.3527355560258885,
+    0.3182218974464767, 0.2850687240110972]'
