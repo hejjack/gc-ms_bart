@@ -15,7 +15,7 @@ from rdkit import Chem, DataStructs
 import multiprocessing
 from pathlib import Path
 
-def find_best_indexes_and_similarities(df_query, ref_spectra, ref_fps, outfile_path, process_id=None):
+def find_best_indexes_and_similarities(df_query, ref_spectra, ref_fps, fpgen, simil_function, outfile_path, process_id=None):
     """find the best match (according to spectra similarity) for every sample in df_query
       and add its index, spectral similarity and SMILES similarity to the row. 
       Write the row immediately to a new file.
@@ -26,7 +26,7 @@ def find_best_indexes_and_similarities(df_query, ref_spectra, ref_fps, outfile_p
           dataframe with query samples
       ref_spectra : list[Spectrum]
           list of reference spectra
-      ref_fps : list[Chem.RDKFingerprint]
+      ref_fps : list[rdkit.ExplicitBitVect]
           list of reference fingerprints
       outfile_path : str
           path to the output file
@@ -46,7 +46,7 @@ def find_best_indexes_and_similarities(df_query, ref_spectra, ref_fps, outfile_p
         query_spec = Spectrum(mz=np.array(query_row.mz),
                         intensities=np.array(query_row.intensity),
                         metadata_harmonization=False)
-        query_fp = Chem.RDKFingerprint(Chem.MolFromSmiles(query_row.smiles))
+        query_fp = fpgen.GetFingerprint(Chem.MolFromSmiles(query_row.smiles))
         best_spec_simil = 0
         best_index = 0
         for index, ref_spec in enumerate(ref_spectra):
@@ -54,7 +54,7 @@ def find_best_indexes_and_similarities(df_query, ref_spectra, ref_fps, outfile_p
             if spec_score > best_spec_simil:
                 best_spec_simil = spec_score
                 best_index = index
-        smiles_score = DataStructs.FingerprintSimilarity(query_fp, ref_fps[best_index])
+        smiles_score = simil_function(query_fp, ref_fps[best_index])
         
         best_spec_simils.append(best_spec_simil)
         best_indexes.append(best_index)  
@@ -80,13 +80,13 @@ def find_best_indexes_and_similarities(df_query, ref_spectra, ref_fps, outfile_p
     return pd.Series(best_indexes), pd.Series(best_spec_simils, dtype=np.float64), pd.Series(best_smiles_simils, dtype=np.float64)
 
 
-def denovo_preprocess_mp(df_reference, df_query, outfile_path, tmp_folder_path, num_processes=1):
+def denovo_preprocess_mp(df_reference, df_query, outfile_path, tmp_folder_path, fpgen, simil_function, num_processes=1):
     # create fingerprints and spectra fo reference dataset
     ref_spectra = [Spectrum(mz=np.array(ref_row.mz),
                             intensities=np.array(ref_row.intensity),
                             metadata_harmonization=False) 
                             for _, ref_row in tqdm(df_reference.iterrows(), desc="precomputing ref_spectra")]
-    ref_fps = [Chem.RDKFingerprint(Chem.MolFromSmiles(ref_row.smiles)) 
+    ref_fps = [fpgen.GetFingerprint(Chem.MolFromSmiles(ref_row.smiles)) 
                for _, ref_row in tqdm(df_reference.iterrows(), desc="precomputing ref_fps")]
     assert len(ref_spectra) == len(df_reference), "ref_spectra and df have different lengths"
     assert len(ref_fps) == len(df_reference), "ref_fps and df have different lengths"
@@ -127,7 +127,32 @@ if __name__ == "__main__":
     parser.add_argument("--query", type=str, required=True, help="path to the query dataset")
     parser.add_argument("--outfile", type=str, required=True, help="path to the output file")
     parser.add_argument("--num_processes", type=int, default=1, help="number of processes to use")
+    parser.add_argument("--config_file", type=str, required=True, help="path to the config file")
     args = parser.parse_args()
+
+    # load config
+    with open(args.config_file, "r") as f:
+        config = json.load(f)
+    
+    # set FP generator
+    fpgen = None
+    if config["fingerprint_type"] == "morgan":
+        fpgen = Chem.AllChem.GetMorganGenerator(radius=2, fpSize=1024)
+    elif config["fingerprint_type"] == "daylight":
+        fpgen = Chem.AllChem.GetRDKitFPGenerator()
+    else: 
+        raise ValueError("fingerprint_type has to be either 'morgan' or 'daylight'")
+    print(f">> Setting up   {config['fingerprint_type']}   fingerprint generator.")
+
+    # set similarity
+    simil_function = None
+    if config["simil_function"] == "tanimoto":
+        simil_function = DataStructs.FingerprintSimilarity
+    elif config["simil_function"] == "cosine":
+        simil_function = DataStructs.CosineSimilarity
+    else: 
+        raise ValueError("similarity_type has to be either 'tanimoto' or 'cosine'")
+    print(f">> Setting up   {config['simil_function']}   similarity function.")
 
     # load data
     print("LOADING DATA")
