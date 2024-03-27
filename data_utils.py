@@ -13,12 +13,14 @@ import numpy as np
 from pathlib import Path 
 from rdkit import Chem
 import selfies as sf
+from tqdm import tqdm
 from spectra_process_utils import mol_repr_to_labels, cumsum_filtering, remove_stereochemistry_and_canonicalize
 
+tqdm.pandas()
 T_co = TypeVar("T_co", covariant=True)
 
- 
 class SpectroDataset(Dataset):
+    # deprecated, using dynamically loaded (preprocessed) datapipes instead 
     def __init__(self, df_or_pth_jsonl, inference_mode=False, restrict_intensities=False):
         """
         Parameters
@@ -70,19 +72,18 @@ class SpectroDataCollator:
     def _collate_batch(self, batch: List[Dict[str, list]]) -> Dict[str, torch.Tensor]:
         """Collate `examples` into a batch"""
         longest_encoder_sequence = max(len(e["input_ids"]) for e in batch)
-        inputs = []
-        for e in batch:
-            inputs.append(e["input_ids"] + [0] * (longest_encoder_sequence - len(e["input_ids"])))             # adding padding
-        out = {"input_ids": torch.tensor(inputs)}
+        inputs = torch.tensor([e["input_ids"] + [0] * (longest_encoder_sequence - len(e["input_ids"])) for e in batch])   # adding padding
+        out = {"input_ids": inputs}
         
         if not self.restrict_intensities: # add position_ids too
-            position_ids = [e["position_ids"] + [0] * (longest_encoder_sequence - len(e["position_ids"])) for e in batch] # adding padding
-            out["position_ids"] = torch.tensor(position_ids)
+            out["position_ids"] = torch.tensor([e["position_ids"] + [0] * (longest_encoder_sequence - len(e["position_ids"])) for e in batch]) # adding padding
 
         if not self.inference_mode: # add labels too
             longest_decoder_sequence = max(len(e["labels"]) for e in batch)
-            labels = [e["labels"] + [-100] * (longest_decoder_sequence - len(e["labels"])) for e in batch] # adding padding
-            out["labels"] = torch.tensor(labels)
+            labels = torch.tensor([e["labels"] + [-100] * (longest_decoder_sequence - len(e["labels"])) for e in batch]) # adding padding
+            out["attention_mask"] = (inputs != 0).int()
+            out["decoder_attention_mask"] = (labels != -100).int()
+            out["labels"] = labels
         
         if self.keep_all_columns:
             for k in batch[0].keys():
@@ -149,7 +150,7 @@ def preprocess_datapoint(datadict, source_token, preprocess_args):
     return out
 
 
-def filter_datapoints(datadict, preprocess_args):
+def filter_datapoints(datadict, preprocess_args) -> bool:
     """
     Filter out datapoints that are too long.
     Parameters
@@ -246,7 +247,7 @@ def build_single_datapipe(json_file: str,
         datapipe = datapipe.header(limit)
     if preprocess_args:
         datapipe = datapipe.map(lambda x: json.loads(x[1]))
-        datapipe = datapipe.filter(filter_fn=lambda d: filter_datapoints(d, preprocess_args), ) # filter out too long data and stuff
+        datapipe = datapipe.filter(filter_fn=lambda d: filter_datapoints(d, preprocess_args)) # filter out too long data and stuff
         datapipe = datapipe.map(lambda d: preprocess_datapoint(d, source_token, preprocess_args))
     else:
         datapipe = datapipe.map(lambda x: json.loads(x[1]))
@@ -348,3 +349,58 @@ def load_all_datapipes(data_args: Dict[str, Any], preprocess_args: Optional[Dict
     datapipes["valid"] = valid_pipes
     datapipes["example"] = example_pipes
     return datapipes
+
+
+def filter_predictions(old_predictions_path, original_data_path, old_config, new_config, save_path=None):
+    """
+    Function that takes predictions, original data, old and new config and filters the predicitons according to 
+    the new config - be careful, the new predictions will always be a subset of the old predictions. If the new
+    config is not a subset of the old config, the data will be incomplete.
+
+    Parameters
+    ----------
+    old_predictions_path: str
+        Path to the old predictions.
+    original_data_path: str
+        Path to the original data.
+    old_config: Dict[str, Any]
+        Old preprocessing config.
+    new_config: Dict[str, Any]
+        New preprocessing config.
+    save_path: str
+        Path to save the new predictions.
+    
+    Returns
+    -------
+    List[Dict[str: float]]
+        New predictions.
+    """
+    predictions_pipe = build_single_datapipe(old_predictions_path, False)
+
+    # Load original data and filter it with old preprocessing config
+    print(">>> Loading original data")
+    original_data = pd.read_json(original_data_path, lines=True, orient="records")
+    print("Original data len: ", len(original_data))
+
+    # Filter original data with old preprocessing config
+    old_filter_mask = original_data.progress_apply(lambda row: filter_datapoints(row, old_config), axis=1)
+    old_filtered_original_data = original_data[old_filter_mask]
+    print("Filtered original data len: ", len(old_filtered_original_data))
+
+    # Combine filtered original data with loaded predictions
+    old_filtered_original_data["predictions"] = list(iter(predictions_pipe))
+
+    # Filter everything based on the new preprocessing config
+    new_filter_mask = old_filtered_original_data.progress_apply(lambda row: filter_datapoints(row, new_config), axis=1) 
+    new_filtered_combined_data = old_filtered_original_data[new_filter_mask]
+    print("Filtered combined data len: ", len(new_filtered_combined_data))
+
+    new_predictions = new_filtered_combined_data["predictions"]
+
+    # Potentially save the new predictions
+    if save_path is not None:
+        print(">>> Saving new predicitons")
+        with open(save_path, "w") as f:
+            f.write('\n'.join(json.dumps(pred) for pred in new_predictions))
+
+    return new_predictions
