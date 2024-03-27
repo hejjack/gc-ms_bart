@@ -1,4 +1,4 @@
-DLýěuMkžRTcommand: ../predict.py --checkpoint ../checkpoints/finetune/pretty-brook-385_rassp1_neims1_112kPretrain_mf10M/checkpoint-73738
+command: ../predict.py --checkpoint ../checkpoints/finetune/pretty-brook-385_rassp1_neims1_112kPretrain_mf10M/checkpoint-73738
   --output-folder ../predictions --config-file ../configs/predict_config_nist_valid.yaml
 cuda_visible_devices: GPU-fcdeab69-98e1-0e6c-8a32-86db99078d6f
 dataloader:
