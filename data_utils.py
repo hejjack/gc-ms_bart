@@ -51,6 +51,7 @@ class SpectroDataset(Dataset):
 
         if not self.inference_mode:
             out["labels"] = row["labels"]
+
         return out
 
 
@@ -305,7 +306,7 @@ def load_all_datapipes(data_args: Dict[str, Any], preprocess_args: Optional[Dict
         }
     """
     seed = data_args["data_seed"] if data_args.get("data_seed") else 42
-    buffer_size = data_args["buffer_size"]
+    buffer_size = data_args.get("buffer_size", None)
     shuffle_train = data_args["shuffle_train"]
     datapipes = {}
 
