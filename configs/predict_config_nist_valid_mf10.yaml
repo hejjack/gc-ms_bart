@@ -3,7 +3,7 @@ general:
   additional_naming_info: "beam10" # optional, st
 
 dataset:
-  data_path: "../data/datasets/NIST/NIST_split_filip/denovo_data/morgan_cosine/valid_with_denovo_info.jsonl" # REQUIRED!
+  data_path: "../data/datasets/NIST/NIST_split_filip/denovo_data/valid_with_denovo_info.jsonl" # REQUIRED!
   dataset_name: NIST_denovo # rcx/ZINC/NIST/...    REQUIRED! (for naming)
   data_split: valid # train/test/valid/... REQUIRED! (for naming)
 

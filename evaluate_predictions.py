@@ -50,7 +50,11 @@ def range_filter(data_range: range) -> Callable[[Any], bool]:
    return f
 
 
-def load_labels_from_dataset(dataset_path: pathlib.Path, data_range: range, do_denovo: bool = False) -> tuple:
+def load_labels_from_dataset(dataset_path: pathlib.Path, 
+                             data_range: range, 
+                             do_denovo: bool = False,
+                             fp_type: Optional[str] = None,
+                             simil_func: Optional[str] = None) -> tuple:
     """Load the labels from the dataset"""
     df = pd.read_json(dataset_path, lines=True, orient="records")
     if not data_range:
@@ -60,15 +64,17 @@ def load_labels_from_dataset(dataset_path: pathlib.Path, data_range: range, do_d
     
     smiles_sim_of_closest = None
     if do_denovo:
-        assert "smiles_sim_of_closest" in df_ranged.columns, "smiles_sim_of_closest column not found in labels, not able to do DENOVO evaluation"
-        smiles_sim_of_closest = df_ranged["smiles_sim_of_closest"].tolist()
+        assert f"smiles_sim_of_closest_{fp_type}_{simil_func}" in df_ranged.columns, "smiles_sim_of_closest column not found in labels, not able to do DENOVO evaluation"
+        smiles_sim_of_closest = df_ranged[f"smiles_sim_of_closest_{fp_type}_{simil_func}"].tolist()
 
     return iter(simles_list), smiles_sim_of_closest
 
 
 def load_labels_to_datapipe(dataset_path: pathlib.Path, 
                             data_range: range = range(0, 0), 
-                            do_denovo: bool = False, 
+                            do_denovo: bool = False,
+                            fp_type: Optional[str] = None,
+                            simil_func: Optional[str] = None,
                             filtering_args: dict = {"max_num_peaks": 300, "max_mz": 500, "max_mol_repr_len": 100, "mol_repr": "smiles"}) -> tuple:
     """Load the labels from the dataset"""
 
@@ -83,8 +89,9 @@ def load_labels_to_datapipe(dataset_path: pathlib.Path,
     
     smiles_sim_of_closest_datapipe = None
     if do_denovo:
+        assert fp_type is not None and simil_func is not None, "fp_type and simil_func have to be specified for denovo evaluation"
         smiles_datapipe, smiles_sim_of_closest_datapipe = datapipe.fork(num_instances=2, buffer_size=-1,)  # 'copy' (fork) the datapipe into two 'new' 
-        smiles_sim_of_closest_datapipe = iter(smiles_sim_of_closest_datapipe.map(lambda d: d["smiles_sim_of_closest"]))
+        smiles_sim_of_closest_datapipe = iter(smiles_sim_of_closest_datapipe.map(lambda d: d[f"smiles_sim_of_closest_{fp_type}_{simil_func}"]))
     smiles_datapipe = iter(smiles_datapipe.map(lambda d: d["smiles"]))
     
     return smiles_datapipe, smiles_sim_of_closest_datapipe if do_denovo else None
@@ -117,7 +124,7 @@ def dummy_generator():
         i += 1
 
 
-def diagram_from_dict(d: dict, title: str):
+def diagram_from_dict(d: dict, title: str): # TODO: rename
     """Create a plotly figure from a cumulatively stored simils dict"""
     simils = []
     ks = []
@@ -166,12 +173,24 @@ def main(
     
     if labels_path.suffix == ".jsonl":
         if on_the_fly:
-            labels_iterator, smiles_sim_of_closest = load_labels_to_datapipe(labels_path, data_range, do_denovo=do_denovo)
+            labels_iterator, smiles_sim_of_closest = load_labels_to_datapipe(labels_path, 
+                                                                             data_range, 
+                                                                             do_denovo=do_denovo, 
+                                                                             fp_type=config["fingerprint_type"], 
+                                                                             simil_func=config["simil_function"],
+                                                                             filtering_args=config["filtering_args"]
+                                                                             )
         else:
-            labels_iterator, smiles_sim_of_closest = load_labels_from_dataset(labels_path, data_range, do_denovo=do_denovo)
+            labels_iterator, smiles_sim_of_closest = load_labels_from_dataset(labels_path, 
+                                                                              data_range, 
+                                                                              do_denovo=do_denovo, 
+                                                                              fp_type=config["fingerprint_type"], 
+                                                                              simil_func=config["simil_function"])
     elif labels_path.suffix == ".smi":
         labels_iterator = labels_path.open("r")
         move_file_pointer(data_range.start, labels_iterator)
+    else: 
+        raise ValueError("Labels have to be either .jsonl or .smi file")
 
     additional_file_info = f"{config['fingerprint_type']}_{config['simil_function']}"
     # set FP generator

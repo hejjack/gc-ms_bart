@@ -6,7 +6,7 @@ dataloader:
   batch_size: 1
   num_workers: 1
 dataset:
-  data_path: ../data/datasets/NIST/NIST_split_filip/denovo_data/morgan_cosine/valid_with_denovo_info.jsonl
+  data_path: ../data/datasets/NIST/NIST_split_filip/denovo_data/valid_with_denovo_info.jsonl
   data_split: valid
   dataset_name: NIST_denovo
 general:
